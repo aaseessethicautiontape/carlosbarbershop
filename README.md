@@ -47,6 +47,7 @@ Seeded demo logins (local only): `owner@carlos.test` and `barber@carlos.test`, p
 | `pnpm db:start` / `db:stop` / `db:reset` | Local Supabase lifecycle |
 | `pnpm db:test` | pgTAP: RLS for anon/barber/owner, no double booking, hours/time-off rules, walk-in seating, rate limiter (78 assertions) |
 | `pnpm rls:check` | Hits the REST API **with the anon key** and proves private tables can't be read or written (27 checks) |
+| `pnpm check:secrets` | After a build, proves no server secret is in the browser bundle |
 | `pnpm db:types` | Regenerate `src/lib/supabase/database.types.ts` |
 
 ## Mock mode vs live mode
