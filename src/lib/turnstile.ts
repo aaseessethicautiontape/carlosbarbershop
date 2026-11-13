@@ -18,5 +18,6 @@ export async function verifyTurnstile(token: string | null | undefined, ip?: str
 }
 
 /** Honeypot: a hidden field real people never fill. A bot that does gets a fake "success". */
-export const HONEYPOT_FIELD = "website";
+import { HONEYPOT_FIELD } from "@/lib/turnstile-shared";
+export { HONEYPOT_FIELD };
 export const honeypotTripped = (fd: FormData) => String(fd.get(HONEYPOT_FIELD) ?? "").trim() !== "";
