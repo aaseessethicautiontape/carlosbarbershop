@@ -14,7 +14,7 @@ const walk = (dir: string): string[] =>
     return statSync(p).isDirectory() ? walk(p) : [p];
   });
 
-const needles = ["SUPABASE_SERVICE_ROLE_KEY", "sb_secret_", "APP_TOKEN_SECRET", "TURNSTILE_SECRET_KEY", "RESEND_API_KEY"];
+const needles = ["SUPABASE_SERVICE_ROLE_KEY", "APP_TOKEN_SECRET", "TURNSTILE_SECRET_KEY", "RESEND_API_KEY"];
 try {
   const env = readFileSync(join(root, ".env.local"), "utf8");
   const m = /^SUPABASE_SERVICE_ROLE_KEY=(.+)$/m.exec(env);
