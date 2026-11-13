@@ -1,4 +1,4 @@
-# Carlo's Barbershop: website + admin
+# Carlo's Barbershop: website + admin 
 
 Next.js 15 (App Router) · TypeScript strict · Tailwind v4 · Supabase (Postgres, Auth, Realtime, Storage) · Zod · Resend + React Email · pnpm.
 
