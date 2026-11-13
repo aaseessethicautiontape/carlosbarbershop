@@ -18,7 +18,7 @@
     "db:reset": "supabase db reset",
     "db:test": "supabase test db",
     "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts",
-    "rls:check": "tsx scripts/rls-check.ts",
+    "rls:check": "tsx --env-file=.env.local scripts/rls-check.ts",
     "check:secrets": "tsx scripts/check-no-service-role-in-client.ts"
   },
   "dependencies": {
