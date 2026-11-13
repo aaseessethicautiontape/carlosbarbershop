@@ -9,8 +9,8 @@ interface Props { shopId: string; tz: string; hours: ShopHour[]; initial: QueueR
 const waitText = (q: QueueRow | null) => {
   if (!q) return "Checking the line…";
   if (q.on_duty_count === 0) return "No barbers on right now";
-  if (q.waiting_count === 0) return "No wait right now";
-  return `${q.waiting_count} waiting · about ${q.est_wait_min ?? 0} min`;
+  if (q.waiting_count === 0 || (q.est_wait_min ?? 0) === 0) return q.waiting_count === 0 ? "No wait right now" : `${q.waiting_count} waiting · chairs free, come on in`;
+  return `${q.waiting_count} waiting · about ${q.est_wait_min} min`;
 };
 
 /** The pitch: how long is the line RIGHT NOW. Names are never shown; it only reads queue_state. */
@@ -42,8 +42,8 @@ export function LiveWaitCard({ shopId, tz, hours, initial, variant = "pill" }: P
         {slots.map((l, i) => <i key={i} className={i === 0 ? "chair" : ""}>{l}</i>)}
       </div>
       <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginBottom: 20 }}>
-        <span className="big">{q?.est_wait_min ?? "–"}</span>
-        <span style={{ color: "var(--c-muted-dark)", paddingBottom: 6 }}>min wait right now<br />{q ? `${q.waiting_count} ${q.waiting_count === 1 ? "person" : "people"} ahead` : ""}</span>
+        <span className="big">{q?.est_wait_min === 0 ? "No wait" : (q?.est_wait_min ?? "–")}</span>
+        <span style={{ color: "var(--c-muted-dark)", paddingBottom: 6 }}>{q?.est_wait_min === 0 ? "right now" : "min wait right now"}<br />{q ? `${q.waiting_count} ${q.waiting_count === 1 ? "person" : "people"} ahead` : ""}</span>
       </div>
       <Link className="btn btn-red" href="/line">Join the line</Link>
     </div>

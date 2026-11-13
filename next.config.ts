@@ -40,7 +40,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   images: {
     formats: ["image/avif", "image/webp"],
-    deviceSizes: [360, 414, 640, 828, 1080, 1280, 1536],
+    deviceSizes: [360, 414, 512, 640, 828, 1080, 1280, 1536],
     imageSizes: [32, 64, 96, 128, 256, 384],
   },
   async headers() {

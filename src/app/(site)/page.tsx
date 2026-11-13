@@ -23,7 +23,7 @@ export default async function HomePage() {
         <div className="pillar l" aria-hidden="true" />
         <div className="pillar r" aria-hidden="true" />
         <div className="wrap heroin">
-          <Image className="biglogo" src="/brand/carlos-logo.png" alt="Carlo's Barbershop, cuts and shaves" width={440} height={426} priority sizes="(max-width: 819px) 290px, 440px" />
+          <Image className="biglogo" src="/brand/carlos-logo.png" alt="Carlo's Barbershop, cuts and shaves" width={440} height={426} priority quality={60} sizes="(max-width: 819px) 290px, 440px" />
           <h1 className="h1">Cuts &amp; shaves on Bayfield,<br /><em>since {site.since}.</em></h1>
           <LiveWaitCard shopId={shop.id} tz={shop.timezone} hours={sh} initial={initial} />
           <div className="up d3" style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "center" }}>

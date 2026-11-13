@@ -124,7 +124,7 @@ img { max-width: 100%; height: auto; }
 /* ------------------------------------------------------------------
    Nav
 ------------------------------------------------------------------- */
-.nav { position: sticky; top: 0; z-index: 30; background: rgba(18,16,16,.95); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(201,163,91,.25); }
+.nav { position: sticky; top: 0; z-index: 30; background: rgba(18,16,16,.97); border-bottom: 1px solid rgba(201,163,91,.25); }
 .navin { display: flex; align-items: center; justify-content: space-between; height: var(--nav-h); gap: 20px; }
 .navlinks { display: flex; gap: 30px; }
 .navlinks a {
@@ -165,7 +165,7 @@ img { max-width: 100%; height: auto; }
 .hero { position: relative; overflow: hidden; padding: 56px 0 90px; text-align: center; }
 .hero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse 60% 55% at 50% 40%, rgba(201,163,91,.16), transparent 70%); }
 .heroin { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; }
-.biglogo { width: 440px; max-width: 80vw; height: auto; filter: drop-shadow(0 30px 40px rgba(0,0,0,.6)); animation: float 6s ease-in-out infinite; }
+.biglogo { width: 440px; max-width: 80vw; height: auto; will-change: transform; animation: float 6s ease-in-out infinite; }
 @keyframes float { 50% { transform: translateY(-10px); } }
 .up { opacity: 0; transform: translateY(20px); animation: up .9s var(--ease) forwards; }
 .d1 { animation-delay: .1s; } .d2 { animation-delay: .25s; } .d3 { animation-delay: .4s; }
