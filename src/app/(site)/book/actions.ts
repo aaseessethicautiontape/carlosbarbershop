@@ -2,7 +2,7 @@
 import { loadSlots } from "@/lib/availability/load";
 import { localDay, isDay } from "@/lib/availability/tz";
 import { pickBarber } from "@/lib/availability/slots";
-import { getBarbers, getShop } from "@/lib/data/public";
+import { getShop } from "@/lib/data/public";
 import { getBookingView, messageDataFor } from "@/lib/booking/view";
 import { notify } from "@/lib/notify";
 import { clientIp, intakeAllowed } from "@/lib/ratelimit";
