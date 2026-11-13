@@ -106,7 +106,7 @@ begin
   select opens, closes, is_off into v_open, v_close, v_off from public.working_hours
     where shop_id = p_shop and barber_id is null and weekday = v_dow;
   if not found or v_off then return 0; end if;
-  if exists (select 1 from public.bookings where shop_id = p_shop and (starts_at at time zone v_tz)::date = p_day) then return 0; end if;
+  if exists (select 1 from public.bookings where shop_id = p_shop and source = 'admin' and (starts_at at time zone v_tz)::date = p_day) then return 0; end if;
   select count(*) into v_nclients from public.clients where shop_id = p_shop;
   if v_nclients = 0 then return 0; end if;
 
