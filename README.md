@@ -16,6 +16,10 @@ This round is a **clickable mock** built on the real architecture. Everything wo
 
 Realtime (Neon Realtime live SQL): seat a walk-in on one screen and it disappears from every other admin screen; the public wait card and a customer's "#3" page update at the same moment. Two people can't take the same slot (database exclusion constraint, not just the UI).
 
+## Live demo
+
+https://carlosbarbershop-kooht-studio.vercel.app (Vercel project `carlosbarbershop`, mock mode on the Neon demo database; open to anyone with the link, including the **Demo login** buttons, so don't put real data in it). Deployment notes: the project is Git-linked to `koohtstudio/carlosbarbershop`, but Vercel blocks Git deployments whose commit author isn't a member of the Vercel team, so deploy by adding the author to the team or by creating the deployment from the Vercel dashboard/API. Neon Auth trusted domains and Neon Realtime allowed origins must list the site's origin.
+
 ## Run it on your computer (no Vercel account, no Docker)
 
 You only need Node 20+ and pnpm. The database lives in a hosted Neon demo project, so there is nothing to install for it.
