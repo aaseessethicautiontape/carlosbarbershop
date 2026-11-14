@@ -17,7 +17,9 @@
     "db:migrate": "node scripts/db-apply.mjs",
     "db:seed": "node scripts/db-apply.mjs --seed",
     "db:check": "tsx --env-file=.env.local scripts/db-check.ts",
-    "demo:setup": "tsx --env-file=.env.local scripts/setup-demo-users.ts"
+    "demo:setup": "tsx --env-file=.env.local scripts/setup-demo-users.ts",
+    "demo": "next build && next start -p 3470",
+    "db:reset-demo": "node --env-file=.env.local scripts/db-reset-demo.mjs"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",

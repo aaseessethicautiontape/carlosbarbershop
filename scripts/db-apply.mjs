@@ -13,12 +13,12 @@ for (const f of readdirSync("db/migrations").filter((x) => x.endsWith(".sql")).s
   if (done.has(f)) { console.log(`skip  ${f}`); continue; }
   // The driver runs one statement per call, so split on statement boundaries that end with ";" at end of line, keeping $$ blocks intact.
   const text = readFileSync(`db/migrations/${f}`, "utf8");
-  await sql.transaction((tx) => splitSql(text).map((s) => tx(s)));
+  await sql.transaction((tx) => splitSql(text).map((s) => tx.query(s)));
   await run("insert into public._migrations (name) values ($1)".replace("$1", `'${f}'`));
   console.log(`apply ${f}`);
 }
 if (process.argv.includes("--seed")) {
-  await sql.transaction((tx) => splitSql(readFileSync("db/seed.sql", "utf8")).map((s) => tx(s)));
+  await sql.transaction((tx) => splitSql(readFileSync("db/seed.sql", "utf8")).map((s) => tx.query(s)));
   console.log("seeded db/seed.sql (demo data)");
 }
 
@@ -30,7 +30,7 @@ function splitSql(text) {
     cur += line + "\n";
     const marks = (line.match(/\$\$/g) ?? []).length;
     if (marks % 2 === 1) dollar = !dollar;
-    if (!dollar && t.endsWith(";")) { out.push(cur.trim()); cur = ""; }
+    if (!dollar && /;\s*(--[^']*)?$/.test(t)) { out.push(cur.trim()); cur = ""; }
   }
   if (cur.trim()) out.push(cur.trim());
   return out;

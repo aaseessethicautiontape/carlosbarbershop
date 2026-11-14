@@ -23,7 +23,9 @@ You only need Node 20+ and pnpm. The database lives in a hosted Neon demo projec
 ```bash
 pnpm install
 # put the Neon values in .env.local (see .env.example). The person who set up the project has them.
-pnpm dev                                      # http://localhost:3470
+pnpm dev                                      # http://localhost:3470 (development)
+# or the fast production build, what a visitor would get:
+pnpm demo                                     # builds, then serves http://localhost:3470
 ```
 
 - Public site: <http://localhost:3470>
@@ -45,7 +47,9 @@ The admin calendar auto-fills the selected day with sample bookings in mock mode
 |---|---|
 | `pnpm dev` / `build` / `start` | Next.js (port 3470) |
 | `pnpm typecheck` · `pnpm lint` · `pnpm test` | tsc · ESLint · Vitest (availability engine, tokens, CSV mapping) |
+| `pnpm demo` | Production build + start on port 3470 |
 | `pnpm db:migrate` / `db:seed` / `demo:setup` | Schema, demo data, demo logins |
+| `pnpm db:reset-demo` | Wipes the DEMO database's data and reloads the seed (refuses in live mode) |
 | `pnpm db:check` | **36 checks against the real database**: a public-only role can't read or write private data, no double booking, hours / time-off / booking-window rules, reschedule, walk-in seating, rate limiter, live counters |
 | `pnpm check:secrets` | After a build, proves no server secret is in the browser bundle |
 
