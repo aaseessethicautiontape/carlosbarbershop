@@ -1,7 +1,7 @@
 import "server-only";
 import { addressOneLine, site } from "@/content/site";
+import { one } from "@/lib/db";
 import { notify, siteUrl } from "@/lib/notify";
-import { adminClient } from "@/lib/supabase/admin";
 import { signToken } from "@/lib/tokens";
 
 /**
@@ -10,12 +10,16 @@ import { signToken } from "@/lib/tokens";
  */
 export async function notifyNextInLine(shopId: string): Promise<void> {
   try {
-    const db = adminClient();
-    const { data: q } = await db.from("queue_state").select("free_chairs").eq("shop_id", shopId).maybeSingle();
-    if (!q || q.free_chairs < 1) return;
-    const { data: first } = await db.from("walkins").select("id, display_name, phone, notified_next_at").eq("shop_id", shopId).eq("status", "waiting").order("joined_at").order("id").limit(1).maybeSingle();
-    if (!first || first.notified_next_at) return;
-    await db.from("walkins").update({ notified_next_at: new Date().toISOString() }).eq("id", first.id);
+    const state = await one<{ free_chairs: number }>("select free_chairs from queue_state where shop_id = $1", [shopId]);
+    if (!state || state.free_chairs < 1) return;
+    // Claim atomically so two overlapping calls never text the same person twice.
+    const first = await one<{ id: string; display_name: string; phone: string | null }>(
+      `update walkins set notified_next_at = now()
+       where id = (select id from walkins where shop_id = $1 and status = 'waiting' order by joined_at, id limit 1) and notified_next_at is null
+       returning id, display_name, phone`,
+      [shopId],
+    );
+    if (!first) return;
     const base = siteUrl();
     await notify({
       shopId, template: "walkin_next", to: { phone: first.phone },
@@ -26,3 +30,4 @@ export async function notifyNextInLine(shopId: string): Promise<void> {
     console.error("notifyNextInLine failed", e);
   }
 }
+

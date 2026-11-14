@@ -1,12 +1,12 @@
 import "server-only";
-import { adminClient } from "@/lib/supabase/admin";
+import { iso, one } from "@/lib/db";
 import { getShop } from "@/lib/data/public";
 import { formatPrice, formatWhen } from "@/lib/format";
 import { addressOneLine, site } from "@/content/site";
 import { signToken } from "@/lib/tokens";
 import { siteUrl } from "@/lib/notify";
 import type { MessageData } from "@/lib/notify/templates";
-import type { BookingStatus } from "@/lib/supabase/types";
+import type { BookingStatus } from "@/lib/dbtypes/types";
 
 export interface BookingView {
   id: string; shopId: string; status: BookingStatus; startsAt: string; endsAt: string; whenLabel: string;
@@ -14,23 +14,28 @@ export interface BookingView {
   clientName: string; clientFirst: string; clientEmail: string | null; clientPhone: string | null; tz: string; canChange: boolean;
 }
 
-/** Server-side lookup for token holders. Uses the service role, returns only what the holder needs. */
+interface Row {
+  id: string; shop_id: string; status: BookingStatus; starts_at: unknown; ends_at: unknown; service_id: string; barber_id: string;
+  price_cents_snapshot: number | null; service_name: string; barber_name: string; client_name: string; client_email: string | null; client_phone: string | null;
+}
+
+/** Server-side lookup for token holders. Returns only what the holder needs. */
 export async function getBookingView(id: string): Promise<BookingView | null> {
-  const { data } = await adminClient()
-    .from("bookings")
-    .select("id, shop_id, status, starts_at, ends_at, service_id, barber_id, price_cents_snapshot, services(name), barbers(name), clients(name, email, phone)")
-    .eq("id", id)
-    .maybeSingle();
-  if (!data) return null;
+  const r = await one<Row>(
+    `select b.id, b.shop_id, b.status, b.starts_at, b.ends_at, b.service_id, b.barber_id, b.price_cents_snapshot,
+            s.name as service_name, br.name as barber_name, c.name as client_name, c.email as client_email, c.phone as client_phone
+     from bookings b join services s on s.id = b.service_id join barbers br on br.id = b.barber_id join clients c on c.id = b.client_id
+     where b.id = $1`,
+    [id],
+  );
+  if (!r) return null;
   const shop = await getShop();
-  const client = data.clients as unknown as { name: string; email: string | null; phone: string | null } | null;
+  const startsAt = iso(r.starts_at);
   return {
-    id: data.id, shopId: data.shop_id, status: data.status, startsAt: data.starts_at, endsAt: data.ends_at,
-    whenLabel: formatWhen(data.starts_at, shop.timezone), serviceId: data.service_id, barberId: data.barber_id,
-    serviceName: (data.services as unknown as { name: string }).name, barberName: (data.barbers as unknown as { name: string }).name,
-    priceLabel: formatPrice(data.price_cents_snapshot), clientName: client?.name ?? "", clientFirst: (client?.name ?? "").split(" ")[0] ?? "",
-    clientEmail: client?.email ?? null, clientPhone: client?.phone ?? null, tz: shop.timezone,
-    canChange: data.status === "booked" && new Date(data.starts_at).getTime() > Date.now(),
+    id: r.id, shopId: r.shop_id, status: r.status, startsAt, endsAt: iso(r.ends_at), whenLabel: formatWhen(startsAt, shop.timezone),
+    serviceId: r.service_id, barberId: r.barber_id, serviceName: r.service_name, barberName: r.barber_name, priceLabel: formatPrice(r.price_cents_snapshot),
+    clientName: r.client_name, clientFirst: r.client_name.split(" ")[0] ?? "", clientEmail: r.client_email, clientPhone: r.client_phone, tz: shop.timezone,
+    canChange: r.status === "booked" && new Date(startsAt).getTime() > Date.now(),
   };
 }
 

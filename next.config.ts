@@ -1,8 +1,6 @@
 import type { NextConfig } from "next";
 
 const isDev = process.env.NODE_ENV !== "production";
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseWs = supabaseUrl.replace(/^http/, "ws");
 
 /**
  * Static CSP for the PUBLIC site. Nonce-based CSP would force every page dynamic
@@ -14,9 +12,9 @@ const publicCsp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://*.supabase.co https://maps.gstatic.com https://maps.googleapis.com",
+  "img-src 'self' data: blob: https://maps.gstatic.com https://maps.googleapis.com",
   "font-src 'self' data:",
-  `connect-src 'self' ${supabaseUrl} ${supabaseWs} https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com`,
+  `connect-src 'self' https://*.neon.tech wss://*.neon.tech https://challenges.cloudflare.com`,
   "frame-src https://challenges.cloudflare.com https://www.google.com",
   "object-src 'none'",
   "base-uri 'self'",

@@ -1,11 +1,14 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 beforeAll(() => {
-  vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "x".repeat(30));
+  vi.stubEnv("DATABASE_URL", "postgresql://user:pass@localhost/db");
+  vi.stubEnv("NEON_AUTH_BASE_URL", "https://example.neon.tech/neondb/auth");
+  vi.stubEnv("NEON_AUTH_COOKIE_SECRET", "c".repeat(40));
+  vi.stubEnv("NEON_REALTIME_URL", "https://example.rt.neon.tech/");
+  vi.stubEnv("NEON_REALTIME_SECRET", "s".repeat(20));
   vi.stubEnv("APP_TOKEN_SECRET", "a-test-secret-that-is-definitely-long-enough-123");
   vi.stubEnv("NEXT_PUBLIC_APP_MODE", "mock");
-  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:54321");
-  vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "y".repeat(30));
+  vi.stubEnv("NEXT_PUBLIC_NEON_REALTIME_URL", "https://example.rt.neon.tech/");
 });
 
 describe("signed tokens", () => {

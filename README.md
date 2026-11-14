@@ -1,8 +1,8 @@
 # Carlo's Barbershop: website + admin 
 
-Next.js 15 (App Router) · TypeScript strict · Tailwind v4 · Supabase (Postgres, Auth, Realtime, Storage) · Zod · Resend + React Email · pnpm.
+Next.js 15 (App Router) · TypeScript strict · Tailwind v4 · **Neon** (Postgres 18, Managed Better Auth, Realtime) · Zod · Resend + React Email · pnpm.
 
-This round is a **clickable mock** built on the real architecture. Everything works end to end on seeded data; going live is configuration plus the items in [`TODO-LIVE.md`](TODO-LIVE.md). The plan and the reasoning behind decisions are in [`PLAN.md`](PLAN.md).
+This round is a **clickable mock** built on the real architecture. Everything works end to end on seeded data; going live is configuration plus the items in [`TODO-LIVE.md`](TODO-LIVE.md). The original plan is in [`PLAN.md`](PLAN.md) (see its "Neon port" note for what changed).
 
 ## What's in it
 
@@ -11,44 +11,43 @@ This round is a **clickable mock** built on the real architecture. Everything wo
 | Home with the **live walk-in wait** card, menu board, barbers, reviews, hours | **Today**: one column per barber, on/off-duty toggles, click a booking for in chair / done / no-show / send reminder |
 | `/book`: four-step booking from real, live availability | **Walk-in line**: live list, "Seat" in a chair, remove, add by name |
 | Confirmation page, add-to-calendar (.ics), cancel + reschedule by signed link | **Clients**: search, detail with visit history, **CSV import** with column-mapping preview |
-| `/line`: join the walk-in line, then a live "You're #3" page | **Services & prices** (incl. "show online"), **Barbers** (hours, days off, services), **Emails & texts** (toggles + previews), **Settings** (shop hours, booking window) |
+| `/line`: join the walk-in line, then a live "You're #3" page | **Services & prices**, **Barbers** (hours, days off, services), **Emails & texts** (toggles + previews), **Settings** |
 | `/services`, `/barbers`, `/visit` | **Outbox** (mock mode): every email/text the app would send |
 
-Realtime: seat a walk-in on one screen and it disappears from every other admin screen; the public wait card and a customer's "#3" page update at the same moment. Two people can't take the same slot (database exclusion constraint, not just the UI).
+Realtime (Neon Realtime live SQL): seat a walk-in on one screen and it disappears from every other admin screen; the public wait card and a customer's "#3" page update at the same moment. Two people can't take the same slot (database exclusion constraint, not just the UI).
 
-## Quick start (mock mode)
+## Run it on your computer (no Vercel account, no Docker)
 
-Prerequisites: Node 20+, pnpm, Docker (Docker Desktop, OrbStack or Colima), the [Supabase CLI](https://supabase.com/docs/guides/cli).
+You only need Node 20+ and pnpm. The database lives in a hosted Neon demo project, so there is nothing to install for it.
 
 ```bash
 pnpm install
-pnpm db:start                                  # local Supabase in Docker, applies migrations + seed.sql
-./scripts/print-local-env.sh > .env.local      # local-only keys + random app secrets, mock mode
-pnpm dev                                       # http://localhost:3470
+# put the Neon values in .env.local (see .env.example). The person who set up the project has them.
+pnpm dev                                      # http://localhost:3470
 ```
 
 - Public site: <http://localhost:3470>
 - Admin: <http://localhost:3470/admin>, click **Demo login · owner** (or **barber** to see the limited role)
-- Local inbox for Supabase Auth emails: <http://127.0.0.1:55324>
-- Local Supabase Studio: <http://127.0.0.1:55323>
 
-Ports are deliberately unusual (`3470`, `553xx`) so they don't collide with other projects. Change them in `package.json` and `supabase/config.toml`.
+Starting from an empty Neon database? Create the demo data once:
 
-Reset the database any time with `pnpm db:reset`. In mock mode the admin calendar auto-fills the selected day with sample bookings if it's empty.
+```bash
+pnpm db:migrate          # applies db/migrations/*.sql
+pnpm db:seed             # demo shop, barbers, services (prices empty), clients, a filled demo day
+pnpm demo:setup          # creates the two demo staff logins in Neon Auth and links their profiles
+```
 
-Seeded demo logins (local only): `owner@carlos.test` and `barber@carlos.test`, password `demo-pass-123`.
+The admin calendar auto-fills the selected day with sample bookings in mock mode if it's empty. Demo logins are `DEMO_OWNER_EMAIL` / `DEMO_BARBER_EMAIL` with `DEMO_PASSWORD` from `.env.local`.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` / `build` / `start` | Next.js |
+| `pnpm dev` / `build` / `start` | Next.js (port 3470) |
 | `pnpm typecheck` · `pnpm lint` · `pnpm test` | tsc · ESLint · Vitest (availability engine, tokens, CSV mapping) |
-| `pnpm db:start` / `db:stop` / `db:reset` | Local Supabase lifecycle |
-| `pnpm db:test` | pgTAP: RLS for anon/barber/owner, no double booking, hours/time-off rules, walk-in seating, rate limiter (78 assertions) |
-| `pnpm rls:check` | Hits the REST API **with the anon key** and proves private tables can't be read or written (27 checks) |
+| `pnpm db:migrate` / `db:seed` / `demo:setup` | Schema, demo data, demo logins |
+| `pnpm db:check` | **36 checks against the real database**: a public-only role can't read or write private data, no double booking, hours / time-off / booking-window rules, reschedule, walk-in seating, rate limiter, live counters |
 | `pnpm check:secrets` | After a build, proves no server secret is in the browser bundle |
-| `pnpm db:types` | Regenerate `src/lib/supabase/database.types.ts` |
 
 ## Mock mode vs live mode
 
@@ -58,18 +57,18 @@ Seeded demo logins (local only): `owner@carlos.test` and `barber@carlos.test`, p
 |---|---|---|
 | `lib/notify` | renders the message, writes it to `notifications_log`, shown at `/admin/outbox` | Resend for email; SMS provider stub (not configured) |
 | `lib/turnstile` | always passes, widget not rendered | Cloudflare Turnstile verification |
-| Admin login | **Demo login** buttons + magic link | magic link only; the demo action refuses |
+| Admin login | **Demo login** buttons + email/password | email/password only; the demo action refuses |
 | `lib/payments` | stub, nothing is charged (pay at the shop) | same stub |
-| Database | local Supabase | your Supabase project |
+| Database | Neon demo project (demo seed) | your live Neon project (migrations only, never the seed) |
 
 ## Switching to live
 
-1. **Supabase project**: create one, then `supabase link --project-ref <ref>` and `supabase db push` (runs `supabase/migrations/*` only; **never push `seed.sql`**). In Auth settings, disable public sign-ups, set the Site URL, and add `https://<your-domain>/admin/auth/callback` as a redirect URL.
-2. **First owner**: create the user in Supabase Auth (Dashboard → Authentication → Add user, email only), then in the SQL editor create the shop and profile, for example `insert into profiles (id, shop_id, role, display_name) values ('<auth user id>', '<shop id>', 'owner', 'Carlo S.');`. Add the real hours, barbers and services through the admin.
-3. **Resend**: verify the sending domain, create an API key.
-4. **Turnstile**: create a widget for your domain.
-5. **Vercel**: import the repo, set the env vars below (Production), deploy. `vercel.json` registers the reminder cron (every 15 min; check your plan allows it, or point any scheduler at `/api/cron/reminders` with `Authorization: Bearer $CRON_SECRET`).
-6. Set `NEXT_PUBLIC_APP_MODE=live`.
+1. **Neon project (live)**: create it in a Realtime region (`aws-us-east-1`, `aws-us-east-2`, `aws-eu-central-1` or `aws-ap-southeast-1`), **Postgres 18**, and turn on Auth and Realtime in the console (this also enables logical replication). Add your site's origin to Realtime's allowed origins.
+2. Put `DATABASE_URL`, `NEON_AUTH_BASE_URL`, `NEON_REALTIME_URL` (+ `NEXT_PUBLIC_NEON_REALTIME_URL`) and `NEON_REALTIME_SECRET` in Vercel, plus fresh `NEON_AUTH_COOKIE_SECRET`, `APP_TOKEN_SECRET`, `CRON_SECRET`.
+3. `pnpm db:migrate` against it (**do not run `db:seed`** on live). Create the real shop row, hours, barbers and services (SQL or the admin).
+4. **First owner**: create the user in Neon Auth (console > Auth > Users), then insert their profile: `insert into profiles (id, shop_id, role, display_name) values ('<neon auth user id>', '<shop id>', 'owner', 'Carlo S.');`. Add other staff the same way with role `barber`.
+5. **Resend**: verified sending domain + API key. **Turnstile**: site + secret keys.
+6. Deploy on Vercel (`vercel.json` registers the reminder cron every 15 min), set `NEXT_PUBLIC_APP_MODE=live`.
 
 ## Environment variables
 
@@ -78,13 +77,14 @@ Names only live in [`.env.example`](.env.example); values go in `.env.local` (gi
 | Variable | Used for | Mock | Live |
 |---|---|---|---|
 | `NEXT_PUBLIC_APP_MODE` | `mock` or `live` | yes | yes |
-| `NEXT_PUBLIC_SITE_URL` | Absolute links in emails, auth redirects, metadata | yes | yes |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | local | project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Publishable key. Safe in the browser; RLS protects data | local | project key |
-| `SUPABASE_SERVICE_ROLE_KEY` | **Server only.** Bypasses RLS; used for public intake after Zod validation | local | **secret** |
+| `NEXT_PUBLIC_SITE_URL` | Absolute links in emails, metadata | yes | yes |
+| `DATABASE_URL` | **Server only.** Neon owner connection (pooled). Bypasses RLS | demo project | **secret** |
+| `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET` | Staff sign-in (Managed Better Auth) and its cookie key (32+ chars) | yes | **secret** |
+| `NEON_REALTIME_URL`, `NEXT_PUBLIC_NEON_REALTIME_URL` | Realtime endpoint (public, browsers connect to it) | yes | yes |
+| `NEON_REALTIME_SECRET`, `NEON_REALTIME_DB` | **Server only.** Seals live queries; database name | yes | **secret** |
 | `APP_TOKEN_SECRET` | 32+ chars. Signs booking and walk-in links | random | **secret** |
 | `CRON_SECRET` | Protects `/api/cron/reminders` | random | **required** |
-| `DEMO_OWNER_EMAIL`, `DEMO_OWNER_PASSWORD` | Local demo account hints (mock only) | optional | ignored |
+| `DEMO_OWNER_EMAIL`, `DEMO_BARBER_EMAIL`, `DEMO_PASSWORD` | Demo login buttons (mock only) | yes | ignored |
 | `RESEND_API_KEY`, `NOTIFY_FROM_EMAIL` | Sending email | – | **required** |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Bot check on booking and line forms | – | **required** |
 | `SMS_PROVIDER`, `SMS_API_KEY`, `SMS_FROM_NUMBER` | Text messages (provider not chosen; see TODO-LIVE) | – | optional |
@@ -93,29 +93,26 @@ Live mode refuses to send if the required ones are missing, with a message namin
 
 ## Security model (short version)
 
-- **RLS is enabled and forced on every table.** Anonymous visitors can read only: the shop, published barbers, shown services, working hours, and two name-free mirror tables (`queue_state`, `busy_blocks`). Nothing else, and no writes.
-- Booking and walk-in intake are **Server Actions**: honeypot → Zod → Turnstile → rate limit (IP + phone, Postgres-backed, fails closed) → service-role RPC. The service-role client is `server-only` and ESLint blocks it from `src/components`.
-- Admin: middleware gate + role re-check in the layout and at the top of **every** server action. Owner-only actions are enforced again by RLS and a database trigger.
-- Public-facing links (confirm, cancel, reschedule, "your place in line") use HMAC-signed, expiring tokens, not IDs.
-- Customer phone and email never reach public client code.
+- **One database client, server only.** `src/lib/db.ts` uses the owner connection string, which never reaches the browser (ESLint blocks importing it from components; `pnpm check:secrets` scans the built bundle). All SQL is parameterised.
+- **Authorisation is in code, then enforced by data scoping:** every admin action calls `authorize()` (role from the `profiles` table via the Neon Auth session) and scopes queries to the staff member's `shop_id`. The admin layout re-checks on every page.
+- **RLS is on for every table that holds private data, with no policies (deny all),** so any other connection (a Data API, an analyst role) sees nothing. A `public_reader` role can read only public-safe tables and only published barbers / shown services. `pnpm db:check` proves it. `queue_state`, `busy_blocks` and `live_ticks` have no RLS because Neon Realtime can't live-query RLS tables; they hold no personal data by construction.
+- **Realtime** only ever seals queries over `queue_state` and `live_ticks`, server-side, from a fixed list (`/api/live`); the staff ticker requires a staff session. No client input reaches the SQL.
+- Booking and walk-in intake: honeypot → Zod → Turnstile → rate limit (IP + phone, Postgres-backed, fails closed) → database function that re-validates hours, time off and window, and relies on the exclusion constraint.
+- Public links (confirm, cancel, reschedule, "your place in line") use HMAC-signed, expiring tokens, not IDs. Customer phone and email never reach public client code.
 - Headers: CSP, HSTS, Referrer-Policy, X-Frame-Options, Permissions-Policy. Public pages use a static CSP (so they stay static/ISR); `/admin` uses a per-request nonce CSP.
-
-Run the proofs: `pnpm db:test` and `pnpm rls:check`.
 
 ## Project layout
 
 ```
 src/app/(site)/      public pages     src/app/admin/     login + (app) screens
-src/app/api/         availability, ICS, line status, cron
+src/app/api/         availability, ICS, line status, sealed live queries, auth proxy, cron
 src/components/      site/ and admin/ (client islands only where interactive)
-src/lib/             env, supabase clients, availability engine, notify, tokens, ratelimit, schemas, csv
-src/middleware.ts    /admin gate + nonce CSP
-supabase/            migrations, seed.sql, pgTAP tests
-scripts/             rls-check.ts, print-local-env.sh
+src/lib/             db, env, availability engine, notify, tokens, ratelimit, schemas, csv, live
+src/middleware.ts    /admin nonce CSP
+db/                  migrations, seed.sql (demo data only), demo-profiles.sql
+scripts/             db-apply.mjs, db-check.ts, setup-demo-users.ts, check-no-service-role-in-client.ts
 ```
 
 ## Performance
 
-Public pages are static/ISR; only the wait card, booking wizard, line forms and tab bar are client code, and the Realtime client loads after the page is idle. Fonts via `next/font`, images via `next/image`, animations are transform/opacity only and switch off under `prefers-reduced-motion`.
-
-Measure on a production build: `pnpm build && pnpm start`, then `lighthouse http://localhost:3470 --form-factor=mobile`.
+Public pages are static/ISR; only the wait card, booking wizard, line forms and tab bar are client code, and the Realtime client loads after the page is idle. Fonts via `next/font`, images via `next/image`, animations are transform/opacity only and switch off under `prefers-reduced-motion`. Measure on a production build: `pnpm build && pnpm start`, then `lighthouse http://localhost:3470 --form-factor=mobile`.

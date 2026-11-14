@@ -1,4 +1,4 @@
--- LOCAL / MOCK DATA ONLY (runs on `supabase db reset`). Never run against the live project.
+-- DEMO DATA ONLY (mock mode). Never run against the live project. Demo staff profiles are created by scripts/setup-demo-users.ts.
 -- Facts (address, hours, barber names, service names) come from the design canvas; prices are
 -- intentionally NULL so the UI shows [PRICE] until the owner fills them in.
 
@@ -43,29 +43,6 @@ insert into public.message_settings (shop_id, template_key, email_enabled, sms_e
   ('00000000-0000-4000-8000-000000000001', 'reminder_2h',  false, false),
   ('00000000-0000-4000-8000-000000000001', 'walkin_next',  false, true),
   ('00000000-0000-4000-8000-000000000001', 'come_back',    true,  false);
-
--- ------------------------------------------------------------- demo staff logins (LOCAL ONLY)
--- owner@carlos.test / barber@carlos.test, password: demo-pass-123
-do $$
-declare u record;
-begin
-  for u in select * from (values
-    ('00000000-0000-4000-8000-0000000000f1'::uuid, 'owner@carlos.test',  'owner'::public.app_role,  'Carlo S.', '00000000-0000-4000-8000-0000000000b1'::uuid),
-    ('00000000-0000-4000-8000-0000000000f2'::uuid, 'barber@carlos.test', 'barber'::public.app_role, 'Estella',  '00000000-0000-4000-8000-0000000000b4'::uuid)
-  ) as t(id, email, role, display_name, barber_id)
-  loop
-    insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-      raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
-      confirmation_token, recovery_token, email_change_token_new, email_change)
-    values ('00000000-0000-0000-0000-000000000000', u.id, 'authenticated', 'authenticated', u.email,
-      extensions.crypt('demo-pass-123', extensions.gen_salt('bf')), now(),
-      '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', '');
-    insert into auth.identities (id, provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
-    values (gen_random_uuid(), u.id::text, u.id, jsonb_build_object('sub', u.id::text, 'email', u.email), 'email', now(), now(), now());
-    insert into public.profiles (id, shop_id, role, display_name, barber_id)
-    values (u.id, '00000000-0000-4000-8000-000000000001', u.role, u.display_name, u.barber_id);
-  end loop;
-end $$;
 
 -- ------------------------------------------------------------- demo clients (fictional 555-01xx numbers)
 insert into public.clients (shop_id, name, phone, email, source, notes)
@@ -130,8 +107,6 @@ begin
   end loop;
   return n;
 end $$;
-revoke execute on function public.demo_fill_day(uuid, date) from public, anon, authenticated;
-grant execute on function public.demo_fill_day(uuid, date) to service_role;
 
 do $$ begin perform public.demo_fill_day('00000000-0000-4000-8000-000000000001', (now() at time zone 'America/Toronto')::date); end $$;
 

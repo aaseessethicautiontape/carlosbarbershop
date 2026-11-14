@@ -2,9 +2,9 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { authorize } from "@/lib/auth/session";
+import { q } from "@/lib/db";
 import type { ActionResult } from "@/lib/schemas/common";
 import { phoneField } from "@/lib/schemas/common";
-import { userClient } from "@/lib/supabase/server";
 
 const importRow = z.object({
   name: z.string().trim().min(1).max(120),
@@ -20,20 +20,25 @@ export async function importClientsAction(input: z.input<typeof importSchema>): 
   if (!a.ok) return a;
   const p = importSchema.safeParse(input);
   if (!p.success) return { ok: false, error: "That file has rows we can't read. Re-check the column mapping." };
-  const db = await userClient();
   const shopId = a.staff.profile.shop_id;
 
-  const { data: existing } = await db.from("clients").select("phone, email").eq("shop_id", shopId);
-  const havePhone = new Set((existing ?? []).map((c) => c.phone).filter(Boolean));
-  const haveEmail = new Set((existing ?? []).map((c) => c.email?.toLowerCase()).filter(Boolean));
+  const existing = await q<{ phone: string | null; email: string | null }>("select phone, email from clients where shop_id = $1", [shopId]);
+  const havePhone = new Set(existing.map((c) => c.phone).filter(Boolean));
+  const haveEmail = new Set(existing.map((c) => c.email?.toLowerCase()).filter(Boolean));
   const fresh = p.data.rows.filter((r) => !(r.phone && havePhone.has(r.phone)) && !(r.email && haveEmail.has(r.email)));
 
   let added = 0;
   for (let i = 0; i < fresh.length; i += 500) {
-    const chunk = fresh.slice(i, i + 500).map((r) => ({ shop_id: shopId, name: r.name, phone: r.phone, email: r.email, notes: r.notes, source: "import" as const }));
-    const { error } = await db.from("clients").insert(chunk);
-    if (error) return { ok: false, error: `Import stopped after ${added} clients: ${error.message}` };
-    added += chunk.length;
+    const c = fresh.slice(i, i + 500);
+    try {
+      await q(
+        "insert into clients (shop_id, name, phone, email, notes, source) select $1::uuid, n, p, e, t, 'import' from unnest($2::text[], $3::text[], $4::text[], $5::text[]) as x(n, p, e, t)",
+        [shopId, c.map((r) => r.name), c.map((r) => r.phone), c.map((r) => r.email), c.map((r) => r.notes)],
+      );
+    } catch (e) {
+      return { ok: false, error: `Import stopped after ${added} clients: ${e instanceof Error ? e.message : "database error"}` };
+    }
+    added += c.length;
   }
   revalidatePath("/admin/clients");
   return { ok: true, added, skipped: p.data.rows.length - added };
@@ -52,9 +57,11 @@ export async function updateClientAction(input: z.input<typeof updateSchema>): P
   if (!a.ok) return a;
   const p = updateSchema.safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Check the fields." };
-  const db = await userClient();
-  const { error } = await db.from("clients").update({ name: p.data.name, email: p.data.email || null, phone: p.data.phone || null, notes: p.data.notes || null }).eq("id", p.data.id);
-  if (error) return { ok: false, error: error.code === "23505" ? "Another client already has that phone number." : "Couldn't save." };
+  try {
+    await q("update clients set name = $2, email = $3, phone = $4, notes = $5 where id = $1 and shop_id = $6", [p.data.id, p.data.name, p.data.email || null, p.data.phone || null, p.data.notes || null, a.staff.profile.shop_id]);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error && e.message.includes("clients_phone_unique") ? "Another client already has that phone number." : "Couldn't save." };
+  }
   revalidatePath(`/admin/clients/${p.data.id}`);
   return { ok: true };
 }

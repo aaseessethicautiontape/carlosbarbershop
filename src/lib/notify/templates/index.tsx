@@ -1,6 +1,6 @@
 import { render } from "@react-email/render";
 import { EmailFrame } from "./layout";
-import type { TemplateKey } from "@/lib/supabase/types";
+import type { TemplateKey } from "@/lib/dbtypes/types";
 
 export interface MessageData {
   shopName: string;

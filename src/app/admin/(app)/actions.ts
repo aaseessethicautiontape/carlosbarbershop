@@ -3,31 +3,34 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 import { authorize } from "@/lib/auth/session";
 import { getBookingView, messageDataFor } from "@/lib/booking/view";
+import { q } from "@/lib/db";
 import { notify } from "@/lib/notify";
 import { notifyNextInLine } from "@/lib/queue/next";
 import type { ActionResult } from "@/lib/schemas/common";
-import { userClient } from "@/lib/supabase/server";
 
 /**
- * Staff actions. Each one: authorize() first (role re-checked here, not just in middleware),
- * Zod-parse the input, then write through the signed-in user's client so RLS still applies.
+ * Staff actions. Each one: authorize() first (role re-checked here: the DB client bypasses RLS, so THIS is the gate),
+ * Zod-parse the input, then run a parameterised query scoped to the staff member's own shop.
  */
 const id = z.uuid();
 const MSG: Record<string, string> = {
   barber_busy: "That barber is mid-cut or has a booking right now. Pick another chair.",
   barber_off: "That barber is off duty.",
   not_waiting: "That person is no longer in the line.",
-  forbidden: "You don't have access to do that.",
 };
-const fail = (e?: string): ActionResult => ({ ok: false, error: MSG[e ?? ""] ?? "Something went wrong. Please try again." });
+const fail = (e: unknown): ActionResult => {
+  const msg = e instanceof Error ? e.message : String(e);
+  const key = Object.keys(MSG).find((k) => msg.includes(k));
+  return { ok: false, error: key ? MSG[key]! : msg.includes("bookings_no_overlap") ? "That chair already has someone in it at that time." : "Something went wrong. Please try again." };
+};
 
 export async function setOnDutyAction(barberId: string, onDuty: boolean): Promise<ActionResult> {
   const a = await authorize();
   if (!a.ok) return a;
   if (!id.safeParse(barberId).success) return { ok: false, error: "Bad request." };
-  const db = await userClient();
-  const { error } = await db.from("barbers").update({ on_duty: onDuty }).eq("id", barberId);
-  if (error) return fail(error.message);
+  try {
+    await q("update barbers set on_duty = $2 where id = $1 and shop_id = $3", [barberId, onDuty, a.staff.profile.shop_id]);
+  } catch (e) { return fail(e); }
   revalidateTag("barbers");
   await notifyNextInLine(a.staff.profile.shop_id);
   revalidatePath("/admin");
@@ -40,10 +43,9 @@ export async function updateBookingStatusAction(input: z.input<typeof statusSche
   if (!a.ok) return a;
   const p = statusSchema.safeParse(input);
   if (!p.success) return { ok: false, error: "Bad request." };
-  const db = await userClient();
-  const patch = p.data.status === "cancelled" ? { status: p.data.status, cancelled_at: new Date().toISOString() } : { status: p.data.status };
-  const { error } = await db.from("bookings").update(patch).eq("id", p.data.bookingId);
-  if (error) return error.code === "23P01" ? { ok: false, error: "That chair already has someone in it at that time." } : fail(error.message);
+  try {
+    await q("update bookings set status = $2::public.booking_status, cancelled_at = case when $2 = 'cancelled' then now() else cancelled_at end where id = $1 and shop_id = $3", [p.data.bookingId, p.data.status, a.staff.profile.shop_id]);
+  } catch (e) { return fail(e); }
   await notifyNextInLine(a.staff.profile.shop_id);
   revalidatePath("/admin");
   return { ok: true };
@@ -65,9 +67,11 @@ export async function seatWalkinAction(walkinId: string, barberId: string): Prom
   const a = await authorize();
   if (!a.ok) return a;
   if (!id.safeParse(walkinId).success || !id.safeParse(barberId).success) return { ok: false, error: "Bad request." };
-  const db = await userClient();
-  const { error } = await db.rpc("seat_walkin", { p_walkin: walkinId, p_barber: barberId });
-  if (error) return fail(error.message);
+  const own = await q("select 1 from walkins where id = $1 and shop_id = $2", [walkinId, a.staff.profile.shop_id]);
+  if (!own.length) return { ok: false, error: MSG.not_waiting! };
+  try {
+    await q("select public.seat_walkin($1::uuid, $2::uuid)", [walkinId, barberId]);
+  } catch (e) { return fail(e); }
   await notifyNextInLine(a.staff.profile.shop_id);
   revalidatePath("/admin");
   return { ok: true };
@@ -77,9 +81,9 @@ export async function removeWalkinAction(walkinId: string): Promise<ActionResult
   const a = await authorize();
   if (!a.ok) return a;
   if (!id.safeParse(walkinId).success) return { ok: false, error: "Bad request." };
-  const db = await userClient();
-  const { error } = await db.from("walkins").update({ status: "removed" }).eq("id", walkinId).eq("status", "waiting");
-  if (error) return fail(error.message);
+  try {
+    await q("update walkins set status = 'removed' where id = $1 and status = 'waiting' and shop_id = $2", [walkinId, a.staff.profile.shop_id]);
+  } catch (e) { return fail(e); }
   await notifyNextInLine(a.staff.profile.shop_id);
   revalidatePath("/admin");
   return { ok: true };
@@ -91,9 +95,9 @@ export async function addWalkinAction(input: { name: string }): Promise<ActionRe
   if (!a.ok) return a;
   const p = addSchema.safeParse(input);
   if (!p.success) return { ok: false, error: "Enter a name." };
-  const db = await userClient();
-  const { error } = await db.from("walkins").insert({ shop_id: a.staff.profile.shop_id, display_name: p.data.name });
-  if (error) return fail(error.message);
+  try {
+    await q("insert into walkins (shop_id, display_name) values ($1, $2)", [a.staff.profile.shop_id, p.data.name]);
+  } catch (e) { return fail(e); }
   revalidatePath("/admin");
   return { ok: true };
 }

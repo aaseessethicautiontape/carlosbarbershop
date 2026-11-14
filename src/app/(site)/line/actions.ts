@@ -1,11 +1,11 @@
 "use server";
+import { getShop } from "@/lib/data/public";
+import { q } from "@/lib/db";
 import { notifyNextInLine } from "@/lib/queue/next";
 import { clientIp, intakeAllowed } from "@/lib/ratelimit";
-import { fieldErrors, type ActionResult } from "@/lib/schemas/common";
 import { tokenOnlySchema } from "@/lib/schemas/booking";
+import { fieldErrors, type ActionResult } from "@/lib/schemas/common";
 import { walkinSchema } from "@/lib/schemas/walkin";
-import { getShop } from "@/lib/data/public";
-import { adminClient } from "@/lib/supabase/admin";
 import { signToken, verifyToken } from "@/lib/tokens";
 import { HONEYPOT_FIELD, honeypotTripped, verifyTurnstile } from "@/lib/turnstile";
 
@@ -25,18 +25,23 @@ export async function joinLineAction(formData: FormData): Promise<ActionResult<{
   if (!(await intakeAllowed("walkin", parsed.data.phone))) return { ok: false, error: "Too many attempts. Please wait a few minutes or ask at the shop." };
 
   const shop = await getShop();
-  const { data, error } = await adminClient().rpc("join_walkin", { p_shop: shop.id, p_name: parsed.data.name, p_phone: parsed.data.phone, p_service: parsed.data.serviceId || undefined });
-  if (error || !data) return { ok: false, error: MESSAGES[error?.message ?? ""] ?? "We couldn't add you to the line. Please try again." };
-  await notifyNextInLine(shop.id);
-  return { ok: true, token: signToken("walkin", data) };
+  try {
+    const [row] = await q<{ id: string }>("select public.join_walkin($1::uuid, $2::text, $3::text, $4::uuid) as id", [shop.id, parsed.data.name, parsed.data.phone, parsed.data.serviceId || null]);
+    if (!row?.id) return { ok: false, error: "We couldn't add you to the line. Please try again." };
+    await notifyNextInLine(shop.id);
+    return { ok: true, token: signToken("walkin", row.id) };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    const key = Object.keys(MESSAGES).find((k) => msg.includes(k));
+    return { ok: false, error: (key && MESSAGES[key]) || "We couldn't add you to the line. Please try again." };
+  }
 }
 
 export async function leaveLineAction(formData: FormData): Promise<ActionResult> {
   const parsed = tokenOnlySchema.safeParse({ token: formData.get("token") });
   const t = parsed.success ? verifyToken(parsed.data.token, "walkin") : null;
   if (!t) return { ok: false, error: "This link isn't valid any more." };
-  const { error } = await adminClient().from("walkins").update({ status: "left" }).eq("id", t.id).eq("status", "waiting");
-  if (error) return { ok: false, error: "Couldn't update the line. Please tell the front desk." };
+  await q("update walkins set status = 'left' where id = $1::uuid and status = 'waiting'", [t.id]);
   const shop = await getShop();
   await notifyNextInLine(shop.id);
   return { ok: true };

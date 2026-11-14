@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { browserClient } from "@/lib/supabase/browser";
+import { useLive } from "@/components/useLive";
 
 interface Props {
   serviceId: string;
@@ -48,15 +48,14 @@ export function SlotPicker({ serviceId, barberId, days, tz, value, onChange, onG
 
   useEffect(() => { setSlots(null); void load(); }, [load]);
 
-  useEffect(() => {
-    const db = browserClient();
-    const ch = db
-      .channel(`slots:${Math.random().toString(36).slice(2)}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "busy_blocks" }, () => void load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "barbers" }, () => void load())
-      .subscribe();
-    return () => { void db.removeChannel(ch); };
-  }, [load]);
+  // Re-check availability whenever anyone books, cancels, or a barber goes on/off duty (sealed "public" ticker).
+  const lastTick = useRef<string | null>(null);
+  useLive<{ n: string }>("public", (rows) => {
+    const n = rows[0]?.n;
+    if (n === undefined) return;
+    if (lastTick.current !== null && lastTick.current !== n) void load();
+    lastTick.current = n;
+  });
 
   const clock = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(iso)).replace(/\s?([ap])\.?m\.?/i, "");
 

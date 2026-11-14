@@ -4,13 +4,12 @@ import { z } from "zod";
 import { addDays, isDay, zoned } from "@/lib/availability/tz";
 import { authorize } from "@/lib/auth/session";
 import { getShop } from "@/lib/data/public";
+import { q } from "@/lib/db";
 import { initials as makeInitials } from "@/lib/format";
 import type { ActionResult } from "@/lib/schemas/common";
-import { userClient } from "@/lib/supabase/server";
 
-/** Owner-only configuration. authorize(["owner"]) first, then Zod, then the owner's own client (RLS re-checks). */
+/** Owner-only configuration. authorize(["owner"]) first, then Zod, then parameterised SQL scoped to the owner's shop. */
 const time = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/);
-const db = userClient;
 const bad = (m = "Please check the fields and try again."): ActionResult => ({ ok: false, error: m });
 const dollars = z.string().trim().regex(/^(\d{1,4}(\.\d{1,2})?)?$/, "Price looks like 35 or 35.50").transform((s) => (s === "" ? null : Math.round(Number(s) * 100)));
 
@@ -23,8 +22,9 @@ const serviceSchema = z.object({
 export async function updateServiceAction(input: z.input<typeof serviceSchema>): Promise<ActionResult> {
   const a = await authorize(["owner"]); if (!a.ok) return a;
   const p = serviceSchema.safeParse(input); if (!p.success) return bad(p.error.issues[0]?.message);
-  const { error } = await (await db()).from("services").update({ name: p.data.name, price_cents: p.data.price, duration_minutes: p.data.durationMinutes, duration_label: p.data.durationLabel || null, show_online: p.data.showOnline }).eq("id", p.data.id);
-  if (error) return bad("Couldn't save.");
+  try {
+    await q("update services set name = $2, price_cents = $3, duration_minutes = $4, duration_label = $5, show_online = $6 where id = $1 and shop_id = $7", [p.data.id, p.data.name, p.data.price, p.data.durationMinutes, p.data.durationLabel || null, p.data.showOnline, a.staff.profile.shop_id]);
+  } catch { return bad("Couldn't save."); }
   revalidateTag("services"); revalidatePath("/admin/services");
   return { ok: true };
 }
@@ -32,11 +32,9 @@ export async function updateServiceAction(input: z.input<typeof serviceSchema>):
 export async function createServiceAction(input: { name: string }): Promise<ActionResult> {
   const a = await authorize(["owner"]); if (!a.ok) return a;
   const p = z.object({ name: z.string().trim().min(1).max(100) }).safeParse(input); if (!p.success) return bad("Enter a name.");
-  const client = await db();
-  const { data: s, error } = await client.from("services").insert({ shop_id: a.staff.profile.shop_id, name: p.data.name, duration_minutes: 20, show_online: false, sort_order: 99 }).select("id").single();
-  if (error || !s) return bad("Couldn't add it.");
-  const { data: barbers } = await client.from("barbers").select("id");
-  if (barbers?.length) await client.from("barber_services").insert(barbers.map((b) => ({ barber_id: b.id, service_id: s.id })));
+  try {
+    await q("with s as (insert into services (shop_id, name, duration_minutes, show_online, sort_order) values ($1, $2, 20, false, 99) returning id) insert into barber_services (barber_id, service_id) select b.id, s.id from barbers b, s where b.shop_id = $1", [a.staff.profile.shop_id, p.data.name]);
+  } catch { return bad("Couldn't add it."); }
   revalidateTag("services"); revalidatePath("/admin/services");
   return { ok: true };
 }
@@ -47,8 +45,9 @@ const barberSchema = z.object({ id: z.uuid(), name: z.string().trim().min(1).max
 export async function updateBarberAction(input: z.input<typeof barberSchema>): Promise<ActionResult> {
   const a = await authorize(["owner"]); if (!a.ok) return a;
   const p = barberSchema.safeParse(input); if (!p.success) return bad(p.error.issues[0]?.message);
-  const { error } = await (await db()).from("barbers").update({ name: p.data.name, initials: p.data.initials.toUpperCase(), bio: p.data.bio || null, is_published: p.data.isPublished }).eq("id", p.data.id);
-  if (error) return bad("Couldn't save.");
+  try {
+    await q("update barbers set name = $2, initials = $3, bio = $4, is_published = $5 where id = $1 and shop_id = $6", [p.data.id, p.data.name, p.data.initials.toUpperCase(), p.data.bio || null, p.data.isPublished, a.staff.profile.shop_id]);
+  } catch { return bad("Couldn't save."); }
   revalidateTag("barbers"); revalidatePath("/admin/barbers");
   return { ok: true };
 }
@@ -56,11 +55,9 @@ export async function updateBarberAction(input: z.input<typeof barberSchema>): P
 export async function createBarberAction(input: { name: string }): Promise<ActionResult> {
   const a = await authorize(["owner"]); if (!a.ok) return a;
   const p = z.object({ name: z.string().trim().min(1).max(80) }).safeParse(input); if (!p.success) return bad("Enter a name.");
-  const client = await db();
-  const { data: b, error } = await client.from("barbers").insert({ shop_id: a.staff.profile.shop_id, name: p.data.name, initials: makeInitials(p.data.name), is_published: false, sort_order: 99 }).select("id").single();
-  if (error || !b) return bad("Couldn't add them.");
-  const { data: services } = await client.from("services").select("id");
-  if (services?.length) await client.from("barber_services").insert(services.map((s) => ({ barber_id: b.id, service_id: s.id })));
+  try {
+    await q("with b as (insert into barbers (shop_id, name, initials, is_published, sort_order) values ($1, $2, $3, false, 99) returning id) insert into barber_services (barber_id, service_id) select b.id, s.id from services s, b where s.shop_id = $1", [a.staff.profile.shop_id, p.data.name, makeInitials(p.data.name)]);
+  } catch { return bad("Couldn't add them."); }
   revalidateTag("barbers"); revalidatePath("/admin/barbers");
   return { ok: true };
 }
@@ -68,12 +65,10 @@ export async function createBarberAction(input: { name: string }): Promise<Actio
 export async function setBarberServicesAction(input: { barberId: string; serviceIds: string[] }): Promise<ActionResult> {
   const a = await authorize(["owner"]); if (!a.ok) return a;
   const p = z.object({ barberId: z.uuid(), serviceIds: z.array(z.uuid()).max(50) }).safeParse(input); if (!p.success) return bad();
-  const client = await db();
-  await client.from("barber_services").delete().eq("barber_id", p.data.barberId);
-  if (p.data.serviceIds.length) {
-    const { error } = await client.from("barber_services").insert(p.data.serviceIds.map((service_id) => ({ barber_id: p.data.barberId, service_id })));
-    if (error) return bad("Couldn't save.");
-  }
+  try {
+    await q("delete from barber_services where barber_id = $1 and barber_id in (select id from barbers where shop_id = $2)", [p.data.barberId, a.staff.profile.shop_id]);
+    if (p.data.serviceIds.length) await q("insert into barber_services (barber_id, service_id) select $1::uuid, id from services where id = any($2::uuid[]) and shop_id = $3", [p.data.barberId, p.data.serviceIds, a.staff.profile.shop_id]);
+  } catch { return bad("Couldn't save."); }
   revalidateTag("barbers");
   return { ok: true };
 }
@@ -87,10 +82,13 @@ export async function setBarberHoursAction(input: z.input<typeof hoursSchema>): 
   const a = await authorize(["owner"]); if (!a.ok) return a;
   const p = hoursSchema.safeParse(input); if (!p.success) return bad();
   if (p.data.days.some((d) => d.mode === "custom" && d.closes <= d.opens)) return bad("Closing time must be after opening time.");
-  const client = await db();
-  await client.from("working_hours").delete().eq("barber_id", p.data.barberId);
-  const rows = p.data.days.filter((d) => d.mode !== "shop").map((d) => ({ shop_id: a.staff.profile.shop_id, barber_id: p.data.barberId, weekday: d.weekday, opens: d.mode === "off" ? "09:00" : d.opens, closes: d.mode === "off" ? "10:00" : d.closes, is_off: d.mode === "off" }));
-  if (rows.length) { const { error } = await client.from("working_hours").insert(rows); if (error) return bad("Couldn't save."); }
+  const shopId = a.staff.profile.shop_id;
+  try {
+    await q("delete from working_hours where barber_id = $1 and shop_id = $2", [p.data.barberId, shopId]);
+    for (const d of p.data.days.filter((x) => x.mode !== "shop")) {
+      await q("insert into working_hours (shop_id, barber_id, weekday, opens, closes, is_off) values ($1, $2, $3, $4, $5, $6)", [shopId, p.data.barberId, d.weekday, d.mode === "off" ? "09:00" : d.opens, d.mode === "off" ? "10:00" : d.closes, d.mode === "off"]);
+    }
+  } catch { return bad("Couldn't save."); }
   revalidateTag("hours"); revalidatePath("/admin/barbers");
   return { ok: true };
 }
@@ -100,8 +98,10 @@ export async function addTimeOffAction(input: { barberId: string; startsOn: stri
   const p = z.object({ barberId: z.uuid(), startsOn: z.string(), endsOn: z.string(), reason: z.string().trim().max(120) }).safeParse(input);
   if (!p.success || !isDay(p.data.startsOn) || !isDay(p.data.endsOn) || p.data.endsOn < p.data.startsOn) return bad("Pick a valid date range.");
   const shop = await getShop();
-  const { error } = await (await db()).from("time_off").insert({ shop_id: a.staff.profile.shop_id, barber_id: p.data.barberId, starts_at: zoned(p.data.startsOn, 0, shop.timezone).toISOString(), ends_at: zoned(addDays(p.data.endsOn, 1), 0, shop.timezone).toISOString(), reason: p.data.reason || null });
-  if (error) return bad("Couldn't save.");
+  try {
+    await q("insert into time_off (shop_id, barber_id, starts_at, ends_at, reason) select $1, id, $3::timestamptz, $4::timestamptz, $5 from barbers where id = $2 and shop_id = $1",
+      [a.staff.profile.shop_id, p.data.barberId, zoned(p.data.startsOn, 0, shop.timezone).toISOString(), zoned(addDays(p.data.endsOn, 1), 0, shop.timezone).toISOString(), p.data.reason || null]);
+  } catch { return bad("Couldn't save."); }
   revalidatePath("/admin/barbers");
   return { ok: true };
 }
@@ -109,8 +109,7 @@ export async function addTimeOffAction(input: { barberId: string; startsOn: stri
 export async function removeTimeOffAction(id: string): Promise<ActionResult> {
   const a = await authorize(["owner"]); if (!a.ok) return a;
   if (!z.uuid().safeParse(id).success) return bad();
-  const { error } = await (await db()).from("time_off").delete().eq("id", id);
-  if (error) return bad("Couldn't remove it.");
+  try { await q("delete from time_off where id = $1 and shop_id = $2", [id, a.staff.profile.shop_id]); } catch { return bad("Couldn't remove it."); }
   revalidatePath("/admin/barbers");
   return { ok: true };
 }
@@ -119,8 +118,9 @@ export async function removeTimeOffAction(id: string): Promise<ActionResult> {
 export async function setMessageSettingAction(input: { key: string; email: boolean; sms: boolean }): Promise<ActionResult> {
   const a = await authorize(["owner"]); if (!a.ok) return a;
   const p = z.object({ key: z.enum(["confirmation", "reminder_24h", "reminder_2h", "walkin_next", "come_back"]), email: z.boolean(), sms: z.boolean() }).safeParse(input); if (!p.success) return bad();
-  const { error } = await (await db()).from("message_settings").upsert({ shop_id: a.staff.profile.shop_id, template_key: p.data.key, email_enabled: p.data.email, sms_enabled: p.data.sms });
-  if (error) return bad("Couldn't save.");
+  try {
+    await q("insert into message_settings (shop_id, template_key, email_enabled, sms_enabled) values ($1, $2, $3, $4) on conflict (shop_id, template_key) do update set email_enabled = excluded.email_enabled, sms_enabled = excluded.sms_enabled", [a.staff.profile.shop_id, p.data.key, p.data.email, p.data.sms]);
+  } catch { return bad("Couldn't save."); }
   revalidatePath("/admin/messages");
   return { ok: true };
 }
@@ -137,13 +137,12 @@ export async function updateSettingsAction(input: z.input<typeof settingsSchema>
   const a = await authorize(["owner"]); if (!a.ok) return a;
   const p = settingsSchema.safeParse(input); if (!p.success) return bad("Please check the numbers.");
   if (p.data.hours.some((h) => !h.closed && h.closes <= h.opens)) return bad("Closing time must be after opening time.");
-  const client = await db();
   const shopId = a.staff.profile.shop_id;
-  const { error } = await client.from("shops").update({ booking_window_days: p.data.bookingWindowDays, min_lead_minutes: p.data.minLeadMinutes, slot_step_minutes: p.data.slotStepMinutes, avg_walkin_minutes: p.data.avgWalkinMinutes, max_queue: p.data.maxQueue, walkin_requires_open: p.data.walkinRequiresOpen }).eq("id", shopId);
-  if (error) return bad("Couldn't save.");
-  await client.from("working_hours").delete().eq("shop_id", shopId).is("barber_id", null);
-  const rows = p.data.hours.filter((h) => !h.closed).map((h) => ({ shop_id: shopId, barber_id: null, weekday: h.weekday, opens: h.opens, closes: h.closes }));
-  if (rows.length) { const r = await client.from("working_hours").insert(rows); if (r.error) return bad("Hours didn't save."); }
+  try {
+    await q("update shops set booking_window_days = $2, min_lead_minutes = $3, slot_step_minutes = $4, avg_walkin_minutes = $5, max_queue = $6, walkin_requires_open = $7 where id = $1", [shopId, p.data.bookingWindowDays, p.data.minLeadMinutes, p.data.slotStepMinutes, p.data.avgWalkinMinutes, p.data.maxQueue, p.data.walkinRequiresOpen]);
+    await q("delete from working_hours where shop_id = $1 and barber_id is null", [shopId]);
+    for (const h of p.data.hours.filter((x) => !x.closed)) await q("insert into working_hours (shop_id, barber_id, weekday, opens, closes) values ($1, null, $2, $3, $4)", [shopId, h.weekday, h.opens, h.closes]);
+  } catch { return bad("Couldn't save."); }
   revalidateTag("shop"); revalidateTag("hours"); revalidatePath("/");
   return { ok: true };
 }

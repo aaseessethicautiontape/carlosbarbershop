@@ -1,5 +1,5 @@
 import "server-only";
-import { publicClient } from "@/lib/supabase/server";
+import { q } from "@/lib/db";
 import { getBarberServices, getBarbers, getHours, getServices, getShop } from "@/lib/data/public";
 import { computeSlots, type BusyBlock, type HoursRow, type Slot } from "./slots";
 import { addDays, zoned } from "./tz";
@@ -14,7 +14,7 @@ export function parseRange(text: string): [number, number] {
 export const toHoursRows = (rows: Awaited<ReturnType<typeof getHours>>): HoursRow[] =>
   rows.map((r) => ({ barberId: r.barber_id, weekday: r.weekday, opens: r.opens, closes: r.closes, isOff: r.is_off }));
 
-/** Free slots for one local day, from PUBLIC data only (hours, on-duty flags, busy_blocks). */
+/** Free slots for one local day, from public-safe data only (hours, on-duty flags, busy_blocks). */
 export async function loadSlots(opts: { serviceId: string; barberId: string | "any"; day: string; now?: Date }): Promise<{ slots: Slot[]; busy: BusyBlock[]; error?: string }> {
   const now = opts.now ?? new Date();
   const [shop, services, barbers, links, hours] = await Promise.all([getShop(), getServices(), getBarbers(), getBarberServices(), getHours()]);
@@ -26,13 +26,13 @@ export async function loadSlots(opts: { serviceId: string; barberId: string | "a
 
   const from = zoned(opts.day, 0, shop.timezone);
   const to = zoned(addDays(opts.day, 1), 0, shop.timezone);
-  // Live read straight from the public mirror table (no PII), never cached.
-  const { data } = await publicClient()
-    .from("busy_blocks")
-    .select("barber_id, during")
-    .in("barber_id", candidates.map((b) => b.id).concat("00000000-0000-0000-0000-000000000000"))
-    .overlaps("during", `[${from.toISOString()},${to.toISOString()})`);
-  const busy: BusyBlock[] = (data ?? [])
+  // Live read of the public mirror table (no personal data), never cached. on_duty is read live as well.
+  const [rows, duty] = await Promise.all([
+    q<{ barber_id: string; during: string }>("select barber_id, during::text as during from busy_blocks where barber_id = any($1::uuid[]) and during && tstzrange($2::timestamptz, $3::timestamptz)", [candidates.map((b) => b.id), from.toISOString(), to.toISOString()]),
+    q<{ id: string; on_duty: boolean }>("select id, on_duty from barbers where id = any($1::uuid[])", [candidates.map((b) => b.id)]),
+  ]);
+  const onDuty = new Map(duty.map((d) => [d.id, d.on_duty]));
+  const busy: BusyBlock[] = rows
     .map((r) => {
       const [start, end] = parseRange(String(r.during));
       return { barberId: r.barber_id, start, end };
@@ -42,7 +42,7 @@ export async function loadSlots(opts: { serviceId: string; barberId: string | "a
   const slots = computeSlots({
     now, tz: shop.timezone, day: opts.day, slotStepMin: shop.slot_step_minutes, minLeadMin: shop.min_lead_minutes,
     windowDays: shop.booking_window_days, durationMin: service.duration_minutes,
-    barbers: candidates.map((b) => ({ id: b.id, onDuty: b.on_duty })), hours: toHoursRows(hours), busy,
+    barbers: candidates.map((b) => ({ id: b.id, onDuty: onDuty.get(b.id) ?? b.on_duty })), hours: toHoursRows(hours), busy,
   });
   return { slots, busy };
 }

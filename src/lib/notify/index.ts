@@ -1,7 +1,7 @@
 import "server-only";
+import { q } from "@/lib/db";
 import { isMock, publicEnv } from "@/lib/env";
-import { adminClient } from "@/lib/supabase/admin";
-import type { TemplateKey } from "@/lib/supabase/types";
+import type { TemplateKey } from "@/lib/dbtypes/types";
 import { renderTemplate, type MessageData } from "./templates";
 import { sendEmail } from "./resend";
 import { sendSms } from "./sms";
@@ -28,8 +28,7 @@ export interface NotifyArgs {
 export interface NotifyResult { channel: "email" | "sms"; status: "logged" | "sent" | "failed"; error?: string }
 
 export async function notify(args: NotifyArgs): Promise<NotifyResult[]> {
-  const db = adminClient();
-  const { data: setting } = await db.from("message_settings").select("email_enabled, sms_enabled").eq("shop_id", args.shopId).eq("template_key", args.template).maybeSingle();
+  const [setting] = await q<{ email_enabled: boolean; sms_enabled: boolean }>("select email_enabled, sms_enabled from message_settings where shop_id = $1 and template_key = $2", [args.shopId, args.template]);
 
   let wantEmail = !!setting?.email_enabled;
   let wantSms = !!setting?.sms_enabled;
@@ -45,12 +44,11 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult[]> {
   const results: NotifyResult[] = [];
 
   const record = async (channel: "email" | "sms", to: string, status: NotifyResult["status"], extra: { providerId?: string; error?: string } = {}) => {
-    await db.from("notifications_log").insert({
-      shop_id: args.shopId, template_key: args.template, channel, to_address: to,
-      subject: channel === "email" ? rendered.subject : null, body: channel === "email" ? rendered.text : rendered.sms,
-      status, provider_id: extra.providerId ?? null, error: extra.error ?? null,
-      booking_id: args.bookingId ?? null, walkin_id: args.walkinId ?? null,
-    });
+    await q(
+      `insert into notifications_log (shop_id, template_key, channel, to_address, subject, body, status, provider_id, error, booking_id, walkin_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [args.shopId, args.template, channel, to, channel === "email" ? rendered.subject : null, channel === "email" ? rendered.text : rendered.sms, status, extra.providerId ?? null, extra.error ?? null, args.bookingId ?? null, args.walkinId ?? null],
+    );
     results.push({ channel, status, error: extra.error });
   };
 

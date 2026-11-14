@@ -5,8 +5,8 @@ import { loadQueue } from "@/lib/admin/queue";
 export const metadata = { title: "Walk-in line" };
 
 export default async function QueuePage() {
-  await requireStaff();
-  const { items, chairs } = await loadQueue();
+  const staff = await requireStaff();
+  const { items, chairs } = await loadQueue(staff.profile.shop_id);
   return (
     <>
       <header className="top"><div><h1>Walk-in line</h1><small>Live across every screen</small></div></header>

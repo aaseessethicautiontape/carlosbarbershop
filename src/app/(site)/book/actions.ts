@@ -1,17 +1,17 @@
 "use server";
+import { revalidatePath } from "next/cache";
 import { loadSlots } from "@/lib/availability/load";
-import { localDay, isDay } from "@/lib/availability/tz";
 import { pickBarber } from "@/lib/availability/slots";
-import { getShop } from "@/lib/data/public";
+import { isDay, localDay } from "@/lib/availability/tz";
 import { getBookingView, messageDataFor } from "@/lib/booking/view";
+import { getShop } from "@/lib/data/public";
+import { q } from "@/lib/db";
 import { notify } from "@/lib/notify";
 import { clientIp, intakeAllowed } from "@/lib/ratelimit";
 import { bookingSchema, rescheduleSchema, tokenOnlySchema } from "@/lib/schemas/booking";
 import { fieldErrors, type ActionResult } from "@/lib/schemas/common";
-import { adminClient } from "@/lib/supabase/admin";
-import { HONEYPOT_FIELD, honeypotTripped, verifyTurnstile } from "@/lib/turnstile";
 import { signToken, verifyToken } from "@/lib/tokens";
-import { revalidatePath } from "next/cache";
+import { HONEYPOT_FIELD, honeypotTripped, verifyTurnstile } from "@/lib/turnstile";
 
 const MESSAGES: Record<string, string> = {
   slot_taken: "Someone just grabbed that time. Please pick another.",
@@ -23,7 +23,12 @@ const MESSAGES: Record<string, string> = {
   service_unavailable: "That service isn't available online right now.",
   not_reschedulable: "This booking can't be changed any more.",
 };
-const friendly = (msg: string | undefined) => MESSAGES[msg ?? ""] ?? "We couldn't book that. Please try again.";
+/** Database functions raise named errors (e.g. `slot_taken`). Find which one the driver message contains. */
+const dbError = (e: unknown): string => {
+  const msg = e instanceof Error ? e.message : String(e);
+  return Object.keys(MESSAGES).find((k) => msg.includes(k)) ?? "";
+};
+const friendly = (key: string) => MESSAGES[key] ?? "We couldn't book that. Please try again.";
 
 export async function createBookingAction(formData: FormData): Promise<ActionResult<{ token: string }>> {
   // 1. Bots: the honeypot is hidden from people. Pretend it worked so they learn nothing.
@@ -55,17 +60,19 @@ export async function createBookingAction(formData: FormData): Promise<ActionRes
     candidates = first ? [first, ...candidates.filter((c) => c !== first)] : candidates;
   } else candidates = candidates.filter((c) => c === input.barberId);
 
-  const db = adminClient();
   let bookingId: string | null = null;
-  let lastError: string | undefined;
+  let lastError = "";
   for (const barberId of candidates) {
-    const { data, error } = await db.rpc("create_booking", {
-      p_shop: shop.id, p_barber: barberId, p_service: input.serviceId, p_starts: new Date(input.startsAt).toISOString(),
-      p_name: input.name, p_phone: input.phone, p_email: input.email || undefined,
-    });
-    if (!error && data) { bookingId = data; break; }
-    lastError = error?.message;
-    if (lastError !== "slot_taken") break; // only retry the next barber on a race
+    try {
+      const [row] = await q<{ id: string }>(
+        "select public.create_booking($1::uuid, $2::uuid, $3::uuid, $4::timestamptz, $5::text, $6::text, $7::text, 'web'::public.booking_source, null::text) as id",
+        [shop.id, barberId, input.serviceId, new Date(input.startsAt).toISOString(), input.name, input.phone, input.email || null],
+      );
+      if (row?.id) { bookingId = row.id; break; }
+    } catch (e) {
+      lastError = dbError(e);
+      if (lastError !== "slot_taken") break; // only retry the next barber on a race
+    }
   }
   if (!bookingId) return { ok: false, error: friendly(lastError) };
 
@@ -83,9 +90,8 @@ export async function cancelBookingAction(formData: FormData): Promise<ActionRes
   const parsed = tokenOnlySchema.safeParse({ token: formData.get("token") });
   const t = parsed.success ? verifyToken(parsed.data.token, "booking") : null;
   if (!t) return { ok: false, error: "This link isn't valid any more." };
-  const { data, error } = await adminClient().from("bookings").update({ status: "cancelled", cancelled_at: new Date().toISOString() })
-    .eq("id", t.id).eq("status", "booked").gt("starts_at", new Date().toISOString()).select("id");
-  if (error || !data?.length) return { ok: false, error: "This booking can't be cancelled online. Please call the shop." };
+  const rows = await q<{ id: string }>("update bookings set status = 'cancelled', cancelled_at = now() where id = $1::uuid and status = 'booked' and starts_at > now() returning id", [t.id]);
+  if (!rows.length) return { ok: false, error: "This booking can't be cancelled online. Please call the shop." };
   revalidatePath(`/b/${parsed.data!.token}`);
   return { ok: true };
 }
@@ -100,11 +106,13 @@ export async function rescheduleBookingAction(input: { token: string; startsAt: 
   const shop = await getShop();
   const day = localDay(new Date(parsed.data.startsAt), shop.timezone);
   const { slots } = await loadSlots({ serviceId: view.serviceId, barberId: view.barberId, day });
-  // Allow the booking's own current time too (it occupies the slot being moved from).
   if (!slots.some((s) => s.start === new Date(parsed.data.startsAt).toISOString())) return { ok: false, error: friendly("slot_taken") };
 
-  const { error } = await adminClient().rpc("reschedule_booking", { p_booking: t.id, p_starts: new Date(parsed.data.startsAt).toISOString() });
-  if (error) return { ok: false, error: friendly(error.message) };
+  try {
+    await q("select public.reschedule_booking($1::uuid, $2::timestamptz, null::uuid)", [t.id, new Date(parsed.data.startsAt).toISOString()]);
+  } catch (e) {
+    return { ok: false, error: friendly(dbError(e)) };
+  }
   try {
     const fresh = await getBookingView(t.id);
     if (fresh) await notify({ shopId: shop.id, template: "confirmation", to: { email: fresh.clientEmail, phone: fresh.clientPhone }, data: messageDataFor(fresh), bookingId: t.id });

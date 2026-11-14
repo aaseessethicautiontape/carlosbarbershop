@@ -1,24 +1,6 @@
 -- Helpers, triggers and RPCs. Everything that bypasses RLS lives in SECURITY DEFINER
 -- functions with an empty search_path, and is executable only by the roles that need it (see 0003).
 
--- ---------------------------------------------------------------- auth helpers
-create function private.my_shop_id() returns uuid
-  language sql stable security definer set search_path = '' as
-$$ select shop_id from public.profiles where id = auth.uid() $$;
-
-create function private.is_staff() returns boolean
-  language sql stable security definer set search_path = '' as
-$$ select exists (select 1 from public.profiles where id = auth.uid()) $$;
-
-create function private.is_owner() returns boolean
-  language sql stable security definer set search_path = '' as
-$$ select exists (select 1 from public.profiles where id = auth.uid() and role = 'owner') $$;
-
--- True when the caller is the server (service role / migrations), not an end user.
-create function private.is_server() returns boolean
-  language sql stable as
-$$ select current_user in ('postgres', 'supabase_admin', 'service_role') $$;
-
 -- ------------------------------------------------------ wait-time estimate
 -- Position p (1 = next). Free chairs take the first p <= free people at once; after that the
 -- first wave waits ~half a cut for busy chairs to free up, then one full cut per extra wave.
@@ -136,18 +118,6 @@ create function private.trg_shops_sync() returns trigger
 $$ begin perform private.refresh_queue_state(new.id); return new; end $$;
 create trigger shops_sync after insert or update of avg_walkin_minutes on public.shops
   for each row execute function private.trg_shops_sync();
-
--- Non-owner staff may only flip a barber's on_duty switch; everything else is owner-only.
-create function private.trg_barbers_guard() returns trigger language plpgsql as
-$$
-begin
-  if private.is_server() or private.is_owner() then return new; end if;
-  if (to_jsonb(new) - 'on_duty') is distinct from (to_jsonb(old) - 'on_duty') then
-    raise exception 'owner_only' using errcode = '42501';
-  end if;
-  return new;
-end $$;
-create trigger barbers_guard before update on public.barbers for each row execute function private.trg_barbers_guard();
 
 -- --------------------------------------------------------------- rate limiting
 -- Fixed-window counter. Returns TRUE when the call is allowed.
@@ -318,8 +288,7 @@ create function public.seat_walkin(p_walkin uuid, p_barber uuid) returns uuid
 $$
 declare w public.walkins; v_shop public.shops; v_dur int; v_service uuid; v_id uuid; v_client uuid;
 begin
-  if not private.is_staff() then raise exception 'forbidden' using errcode = '42501'; end if;
-  select * into w from public.walkins where id = p_walkin and status = 'waiting' and shop_id = private.my_shop_id() for update;
+  select * into w from public.walkins where id = p_walkin and status = 'waiting' for update;
   if not found then raise exception 'not_waiting'; end if;
   select * into v_shop from public.shops where id = w.shop_id;
   if not exists (select 1 from public.barbers where id = p_barber and shop_id = w.shop_id and on_duty) then raise exception 'barber_off'; end if;
@@ -343,3 +312,18 @@ begin
   update public.walkins set status = 'seated', seated_at = now(), seated_barber_id = p_barber where id = p_walkin;
   return v_id;
 end $$;
+
+-- --------------------------------------------------------------- live change ticks
+create function private.bump_tick(p_scope text) returns void
+  language sql security definer set search_path = '' as
+$$ update public.live_ticks set n = n + 1 where scope = p_scope $$;
+
+create function private.trg_tick_both() returns trigger language plpgsql security definer set search_path = '' as
+$$ begin perform private.bump_tick('public'); perform private.bump_tick('admin'); return null; end $$;
+create function private.trg_tick_admin() returns trigger language plpgsql security definer set search_path = '' as
+$$ begin perform private.bump_tick('admin'); return null; end $$;
+
+create trigger bookings_tick after insert or update or delete on public.bookings for each statement execute function private.trg_tick_both();
+create trigger time_off_tick after insert or update or delete on public.time_off for each statement execute function private.trg_tick_both();
+create trigger barbers_tick after insert or update or delete on public.barbers for each statement execute function private.trg_tick_both();
+create trigger walkins_tick after insert or update or delete on public.walkins for each statement execute function private.trg_tick_admin();

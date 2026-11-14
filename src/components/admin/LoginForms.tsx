@@ -1,6 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
-import { demoLoginAction, magicLinkAction } from "@/app/admin/login/actions";
+import { demoLoginAction, passwordLoginAction } from "@/app/admin/login/actions";
 
 export function LoginForms({ mock }: { mock: boolean }) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -21,9 +21,10 @@ export function LoginForms({ mock }: { mock: boolean }) {
           </div>
         </div>
       )}
-      <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); start(async () => { const r = await magicLinkAction(fd); setMsg(r.ok ? { ok: true, text: "If that address is on the team, a sign-in link is on its way. Check your inbox." } : { ok: false, text: r.error }); }); }}>
+      <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); start(async () => { const r = await passwordLoginAction(fd); if (r && !r.ok) setMsg({ ok: false, text: r.error }); }); }}>
         <label className="fld">Email<input name="email" type="email" autoComplete="email" required placeholder="you@carlosbarbershop.net" /></label>
-        <button className="btn btn-ink" type="submit" disabled={pending} style={{ marginTop: 10 }}>Email me a sign-in link</button>
+        <label className="fld" style={{ marginTop: 10 }}>Password<input name="password" type="password" autoComplete="current-password" required /></label>
+        <button className="btn btn-ink" type="submit" disabled={pending} style={{ marginTop: 12 }}>Sign in</button>
       </form>
       {msg && <p role="status" className={msg.ok ? "ok-msg" : "form-error"}>{msg.text}</p>}
     </div>

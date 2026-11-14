@@ -1,18 +1,25 @@
 import "server-only";
 import { redirect } from "next/navigation";
-import { userClient } from "@/lib/supabase/server";
-import type { AppRole, Row } from "@/lib/supabase/types";
+import { neonAuth } from "@/lib/auth/neon";
+import { one } from "@/lib/db";
+import type { AppRole, Row } from "@/lib/dbtypes/types";
 
 export interface StaffSession { userId: string; email: string | undefined; profile: Row<"profiles"> }
 
-/** Validated against the Auth server (getUser), never trusting the cookie alone. */
+/** Session comes from the Neon Auth cookie; staff status comes from the profiles table (no profile = no access). */
 export async function getStaff(): Promise<StaffSession | null> {
-  const db = await userClient();
-  const { data: { user } } = await db.auth.getUser();
-  if (!user) return null;
-  const { data: profile } = await db.from("profiles").select("*").eq("id", user.id).maybeSingle();
-  if (!profile) return null;
-  return { userId: user.id, email: user.email, profile };
+  let userId: string | undefined;
+  let email: string | undefined;
+  try {
+    const { data } = await neonAuth().getSession();
+    userId = data?.user?.id;
+    email = data?.user?.email;
+  } catch {
+    return null;
+  }
+  if (!userId || !/^[0-9a-f-]{36}$/i.test(userId)) return null;
+  const profile = await one<Row<"profiles">>("select * from profiles where id = $1::uuid", [userId]);
+  return profile ? { userId, email, profile } : null;
 }
 
 /** For admin PAGES: send visitors without a staff profile to the login screen. */
@@ -25,7 +32,7 @@ export async function requireStaff(roles: AppRole[] = ["owner", "barber"]): Prom
 
 export type Authz = { ok: true; staff: StaffSession } | { ok: false; error: string };
 
-/** For admin SERVER ACTIONS: every action calls this first (middleware is not enough). */
+/** For admin SERVER ACTIONS: every action calls this first (this is the real gate: the DB client bypasses RLS). */
 export async function authorize(roles: AppRole[] = ["owner", "barber"]): Promise<Authz> {
   const s = await getStaff();
   if (!s) return { ok: false, error: "Please sign in again." };

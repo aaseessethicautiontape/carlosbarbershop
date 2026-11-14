@@ -3,11 +3,17 @@ import { z } from "zod";
 import { publicEnv } from "./env";
 
 const serverSchema = z.object({
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
+  DATABASE_URL: z.string().min(20),
+  NEON_AUTH_BASE_URL: z.url(),
+  NEON_AUTH_COOKIE_SECRET: z.string().min(32, "NEON_AUTH_COOKIE_SECRET must be at least 32 characters (openssl rand -base64 32)"),
+  NEON_REALTIME_URL: z.url(),
+  NEON_REALTIME_SECRET: z.string().min(10),
+  NEON_REALTIME_DB: z.string().default("neondb"),
   APP_TOKEN_SECRET: z.string().min(32, "APP_TOKEN_SECRET must be at least 32 characters (openssl rand -base64 48)"),
   CRON_SECRET: z.string().min(16).optional(),
   DEMO_OWNER_EMAIL: z.string().optional(),
-  DEMO_OWNER_PASSWORD: z.string().optional(),
+  DEMO_BARBER_EMAIL: z.string().optional(),
+  DEMO_PASSWORD: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
   NOTIFY_FROM_EMAIL: z.string().optional(),
   TURNSTILE_SECRET_KEY: z.string().optional(),
@@ -28,8 +34,8 @@ export function serverEnv(): ServerEnv {
 
   // Live mode needs the real services. Fail loudly at first use rather than silently dropping emails.
   if (publicEnv().NEXT_PUBLIC_APP_MODE === "live") {
-    const missing = (["RESEND_API_KEY", "NOTIFY_FROM_EMAIL", "TURNSTILE_SECRET_KEY", "CRON_SECRET"] as const).filter((k) => !env[k]);
-    if (!publicEnv().NEXT_PUBLIC_TURNSTILE_SITE_KEY) missing.push("NEXT_PUBLIC_TURNSTILE_SITE_KEY" as never);
+    const missing: string[] = (["RESEND_API_KEY", "NOTIFY_FROM_EMAIL", "TURNSTILE_SECRET_KEY", "CRON_SECRET"] as const).filter((k) => !env[k]);
+    if (!publicEnv().NEXT_PUBLIC_TURNSTILE_SITE_KEY) missing.push("NEXT_PUBLIC_TURNSTILE_SITE_KEY");
     if (missing.length) throw new Error(`Live mode is missing: ${missing.join(", ")}. See README.md → "Switching to live".`);
   }
   cached = env;

@@ -1,39 +1,39 @@
 "use server";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { isMock, publicEnv } from "@/lib/env";
+import { neonAuth } from "@/lib/auth/neon";
+import { isMock } from "@/lib/env";
+import { serverEnv } from "@/lib/env.server";
 import { allow, clientIp } from "@/lib/ratelimit";
-import { userClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/schemas/common";
 
 /**
- * MOCK MODE ONLY. Signs in the seeded local demo accounts. In live mode this action refuses,
- * and the page doesn't render the button.
+ * MOCK MODE ONLY. Signs in the seeded demo accounts (created by scripts/setup-demo-users.ts).
+ * In live mode this action refuses, and the page doesn't render the buttons.
  */
 export async function demoLoginAction(formData: FormData): Promise<ActionResult> {
   if (!isMock()) return { ok: false, error: "Demo login is disabled." };
   const who = z.enum(["owner", "barber"]).safeParse(formData.get("who"));
   if (!who.success) return { ok: false, error: "Unknown demo account." };
-  const email = who.data === "owner" ? "owner@carlos.test" : "barber@carlos.test";
-  const db = await userClient();
-  const { error } = await db.auth.signInWithPassword({ email, password: process.env.DEMO_OWNER_PASSWORD || "demo-pass-123" });
-  if (error) return { ok: false, error: "Demo accounts aren't set up. Run `pnpm db:reset`." };
+  const env = serverEnv();
+  const email = who.data === "owner" ? env.DEMO_OWNER_EMAIL : env.DEMO_BARBER_EMAIL;
+  if (!email || !env.DEMO_PASSWORD) return { ok: false, error: "Demo accounts aren't configured (DEMO_* env vars)." };
+  const { error } = await neonAuth().signIn.email({ email, password: env.DEMO_PASSWORD });
+  if (error) return { ok: false, error: "Demo accounts aren't set up. Run `pnpm demo:setup`." };
   redirect("/admin");
 }
 
-/** Live mode: passwordless magic link. Only existing staff can receive one (signups are disabled). */
-export async function magicLinkAction(formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ email: z.email().max(160) }).safeParse({ email: String(formData.get("email") ?? "").trim() });
-  if (!parsed.success) return { ok: false, error: "Enter a valid email address." };
-  if (!(await allow(`login:${await clientIp()}`, 900, 6))) return { ok: false, error: "Too many attempts. Try again in a few minutes." };
-  const db = await userClient();
-  await db.auth.signInWithOtp({ email: parsed.data.email, options: { shouldCreateUser: false, emailRedirectTo: `${publicEnv().NEXT_PUBLIC_SITE_URL}/admin/auth/callback` } });
-  // Same answer whether or not the address is a staff member: don't leak who is on the team.
-  return { ok: true };
+/** Staff sign-in with email + password (Neon Auth). Accounts are created by the owner in the Neon console. */
+export async function passwordLoginAction(formData: FormData): Promise<ActionResult> {
+  const parsed = z.object({ email: z.email().max(160), password: z.string().min(1).max(200) }).safeParse({ email: String(formData.get("email") ?? "").trim(), password: String(formData.get("password") ?? "") });
+  if (!parsed.success) return { ok: false, error: "Enter your email and password." };
+  if (!(await allow(`login:${await clientIp()}`, 900, 10))) return { ok: false, error: "Too many attempts. Try again in a few minutes." };
+  const { error } = await neonAuth().signIn.email(parsed.data);
+  if (error) return { ok: false, error: "That email and password don't match." };
+  redirect("/admin");
 }
 
 export async function signOutAction() {
-  const db = await userClient();
-  await db.auth.signOut();
+  await neonAuth().signOut();
   redirect("/admin/login");
 }

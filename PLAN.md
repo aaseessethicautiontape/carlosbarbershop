@@ -1,6 +1,13 @@
 # PLAN.md — Carlo's Barbershop (website + admin), round 1: clickable mock
 
-Status: **draft, waiting for "go"**. Nothing has been scaffolded or committed yet.
+> **UPDATE (Neon port).** On request, the backend moved from Supabase to **Neon**: Postgres 18, Managed Better Auth, and Neon Realtime
+> (live SQL). Consequences vs the plan below: (1) one server-only SQL client (`src/lib/db.ts`) replaces supabase-js; (2) RLS stays on every
+> private table as defence in depth (no policies = deny), but the app authorises in code (`authorize()` + `shop_id` scoping) because it connects as
+> the owner; (3) Realtime cannot live-query RLS tables, so live updates use PII-free `queue_state` and a `live_ticks` change counter, sealed
+> server-side; (4) staff sign in with email + password (Neon Auth); (5) local Docker/Supabase is gone: mock mode runs against a Neon demo
+> project. Sections below that mention Supabase, PostgREST, pgTAP or the service role describe the original plan.
+
+Status: **built.** See README.md.
 
 ---
 

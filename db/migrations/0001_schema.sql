@@ -1,9 +1,8 @@
 -- Carlo's Barbershop: schema. RLS is applied in 0003; functions/triggers in 0002.
 
-create extension if not exists btree_gist with schema extensions;
-create extension if not exists pgcrypto with schema extensions;
+create extension if not exists btree_gist;
 
-create schema if not exists private;  -- not exposed through the API
+create schema if not exists private;
 
 create type public.app_role as enum ('owner', 'barber');
 create type public.booking_status as enum ('booked', 'in_chair', 'done', 'no_show', 'cancelled');
@@ -34,7 +33,7 @@ create table public.shops (
 
 -- ------------------------------------------------------------- profiles
 create table public.profiles (
-  id uuid primary key references auth.users (id) on delete cascade,
+  id uuid primary key,  -- = Neon Auth user id (neon_auth."user".id)
   shop_id uuid not null references public.shops (id) on delete cascade,
   role public.app_role not null,
   display_name text not null,
@@ -223,3 +222,12 @@ create view public.walkins_ranked with (security_invoker = true) as
   select w.*, row_number() over (partition by w.shop_id order by w.joined_at, w.id)::int as position
   from public.walkins w
   where w.status = 'waiting';
+
+-- Change signals for Realtime. No personal data: just a counter per scope. The public site watches
+-- 'public' (availability may have changed), staff screens watch 'admin'. Neon Realtime cannot live-query
+-- tables that have RLS, so the PII tables are never subscribed to directly.
+create table public.live_ticks (
+  scope text primary key,
+  n bigint not null default 0
+);
+insert into public.live_ticks (scope, n) values ('public', 0), ('admin', 0);

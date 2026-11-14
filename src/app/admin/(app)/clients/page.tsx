@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireStaff } from "@/lib/auth/session";
 import { getShop } from "@/lib/data/public";
 import { formatPhone } from "@/lib/format";
-import { userClient } from "@/lib/supabase/server";
+import { one, q } from "@/lib/db";
 
 export const metadata = { title: "Clients" };
 const PAGE = 50;
@@ -11,36 +11,34 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   const staff = await requireStaff();
   const sp = await searchParams;
   const shop = await getShop();
-  // Strip characters that have meaning inside a PostgREST filter before using the term.
-  const q = (sp.q ?? "").replace(/[^\p{L}\p{N}@.+\- ]/gu, "").trim().slice(0, 60);
+  // Keep only letters, digits and a few symbols (values are parameterised anyway; this just tidies the search box).
+  const term = (sp.q ?? "").replace(/[^\p{L}\p{N}@.+\- ]/gu, "").trim().slice(0, 60);
   const page = Math.max(0, Number.parseInt(sp.page ?? "0", 10) || 0);
-  const db = await userClient();
-
-  let query = db
-    .from("clients")
-    .select("id, name, phone, email, bookings(starts_at, status, barbers(name))", { count: "exact" })
-    .order("name")
-    .range(page * PAGE, page * PAGE + PAGE - 1);
-  if (q) query = query.or(`name.ilike.%${q}%,phone.ilike.%${q.replace(/\D/g, "") || "x"}%,email.ilike.%${q}%`);
-  const { data, count } = await query;
-
-  const rows = (data ?? []).map((c) => {
-    const visits = (c.bookings ?? []).filter((b) => b.status === "done" || b.status === "in_chair");
-    const last = visits.map((v) => v.starts_at).sort().at(-1);
-    const tally = new Map<string, number>();
-    for (const v of visits) { const n = (v.barbers as unknown as { name: string } | null)?.name; if (n) tally.set(n, (tally.get(n) ?? 0) + 1); }
-    const usual = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—";
-    return { ...c, visits: visits.length, last: last ? new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric", year: "numeric", timeZone: shop.timezone }).format(new Date(last)) : "—", usual };
-  });
+  const like = `%${term}%`;
+  const digits = term.replace(/\D/g, "");
+  const phoneLike = digits ? `%${digits}%` : "\u0000none";
+  const where = "c.shop_id = $1 and ($2 = '' or c.name ilike $3 or c.phone ilike $4 or c.email ilike $3)";
+  const [list, total] = await Promise.all([
+    q<{ id: string; name: string; phone: string | null; email: string | null; visits: number; last_visit: unknown; usual: string | null }>(
+      `select c.id, c.name, c.phone, c.email,
+              count(b.id) filter (where b.status in ('done','in_chair'))::int as visits,
+              max(b.starts_at) filter (where b.status in ('done','in_chair')) as last_visit,
+              (select br.name from bookings b2 join barbers br on br.id = b2.barber_id where b2.client_id = c.id and b2.status in ('done','in_chair') group by br.name order by count(*) desc limit 1) as usual
+       from clients c left join bookings b on b.client_id = c.id
+       where ${where} group by c.id order by c.name limit ${PAGE} offset $5`, [staff.profile.shop_id, term, like, phoneLike, page * PAGE]),
+    one<{ n: number }>(`select count(*)::int as n from clients c where ${where}`, [staff.profile.shop_id, term, like, phoneLike]),
+  ]);
+  const count = total?.n ?? 0;
+  const rows = list.map((c) => ({ ...c, last: c.last_visit ? new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric", year: "numeric", timeZone: shop.timezone }).format(new Date(String(c.last_visit))) : "—", usual: c.usual ?? "—" }));
   const cols = { ["--tcols" as string]: "1.5fr 1fr 0.6fr 1fr 1fr" };
 
   return (
     <>
       <header className="top">
-        <div><h1>Clients</h1><small>{count ?? 0} clients · every booking and walk-in saves here automatically</small></div>
+        <div><h1>Clients</h1><small>{count} clients · every booking and walk-in saves here automatically</small></div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <form style={{ display: "flex", gap: 8 }}>
-            <input className="inp" name="q" defaultValue={q} placeholder="Search name, phone or email" aria-label="Search clients" style={{ width: 260 }} />
+            <input className="inp" name="q" defaultValue={term} placeholder="Search name, phone or email" aria-label="Search clients" style={{ width: 260 }} />
             <button className="btn btn-ink btn-sm" type="submit">Search</button>
           </form>
           {staff.profile.role === "owner" && <Link className="btn btn-ghost btn-sm" href="/admin/clients/import">Import CSV</Link>}
@@ -58,8 +56,8 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
           ))}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          {page > 0 && <Link className="btn btn-ghost btn-sm" href={`/admin/clients?q=${encodeURIComponent(q)}&page=${page - 1}`}>‹ Previous</Link>}
-          {(page + 1) * PAGE < (count ?? 0) && <Link className="btn btn-ghost btn-sm" href={`/admin/clients?q=${encodeURIComponent(q)}&page=${page + 1}`}>Next ›</Link>}
+          {page > 0 && <Link className="btn btn-ghost btn-sm" href={`/admin/clients?q=${encodeURIComponent(term)}&page=${page - 1}`}>‹ Previous</Link>}
+          {(page + 1) * PAGE < count && <Link className="btn btn-ghost btn-sm" href={`/admin/clients?q=${encodeURIComponent(term)}&page=${page + 1}`}>Next ›</Link>}
         </div>
       </div>
     </>
