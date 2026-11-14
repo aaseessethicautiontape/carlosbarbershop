@@ -104,22 +104,22 @@ img { max-width: 100%; height: auto; }
 ------------------------------------------------------------------- */
 .pole { height: 8px; position: relative; overflow: hidden; background: var(--c-paper); }
 .pole::before {
-  content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: calc(100% + 79px);
+  content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: calc(100% + 80px);
   background: repeating-linear-gradient(-45deg, #b3222b 0 14px, #faf5ec 14px 28px, #1f3a68 28px 42px, #faf5ec 42px 56px);
-  background-size: 79px 8px; animation: cb-pole 2.4s linear infinite;
+  background-size: 79.2px 8px; animation: cb-pole 2.4s linear infinite;
 }
-@keyframes cb-pole { to { transform: translateX(-79px); } }
+@keyframes cb-pole { to { transform: translateX(-79.2px); } }
 
 .pillar { position: absolute; top: 0; bottom: 0; width: 38px; border-radius: 0 0 19px 19px; overflow: hidden; opacity: .9;
   box-shadow: inset -8px 0 14px rgba(0,0,0,.45), inset 8px 0 10px rgba(255,255,255,.25); }
 .pillar::before {
-  content: ""; position: absolute; left: 0; right: 0; top: -90px; bottom: 0;
+  content: ""; position: absolute; left: 0; right: 0; top: -91px; bottom: 0;
   background: repeating-linear-gradient(45deg, #b3222b 0 16px, #f3e9d6 16px 32px, #1f3a68 32px 48px, #f3e9d6 48px 64px);
-  background-size: 38px 90px; animation: cb-spin 3s linear infinite;
+  background-size: 38px 90.51px; animation: cb-spin 3s linear infinite;
 }
 .pillar::after { content: ""; position: absolute; inset: 0; box-shadow: inset -8px 0 14px rgba(0,0,0,.45), inset 8px 0 10px rgba(255,255,255,.25); }
 .pillar.l { left: 6%; } .pillar.r { right: 6%; }
-@keyframes cb-spin { to { transform: translateY(90px); } }
+@keyframes cb-spin { to { transform: translateY(90.51px); } }
 
 /* ------------------------------------------------------------------
    Nav

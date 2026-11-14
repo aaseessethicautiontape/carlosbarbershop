@@ -12,7 +12,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
       <header className="nav">
         <div className="wrap navin">
           <Link href="/" aria-label="Carlo's Barbershop home" style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none" }}>
-            <Image src="/brand/carlos-logo-web.png" alt="" width={54} height={52} sizes="54px" />
+            <Image src="/brand/carlos-logo-web.png" alt="" width={54} height={52} sizes="54px" loading="eager" />
             <span className="os" style={{ color: "var(--c-text-dark)", fontSize: 15 }}>Carlo&apos;s Barbershop</span>
           </Link>
           <NavLinks />
