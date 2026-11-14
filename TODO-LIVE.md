@@ -25,7 +25,7 @@ Everything in the app works on seeded data. This is the exact list of what to pl
 - [ ] **Resend**: API key (`RESEND_API_KEY`), verified sending domain, `NOTIFY_FROM_EMAIL` (e.g. `Carlo's <bookings@carlosbarbershop.net>`). SPF/DKIM/DMARC records for that domain.
 - [ ] **Cloudflare Turnstile**: `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` for the domain.
 - [ ] **Secrets**: generate fresh `APP_TOKEN_SECRET` (`openssl rand -base64 48`) and `CRON_SECRET` for production. Changing `APP_TOKEN_SECRET` invalidates all existing booking links.
-- [ ] **Vercel**: add env vars, deploy, confirm the cron in `vercel.json` is accepted on your plan (every 15 min), then set `NEXT_PUBLIC_APP_MODE=live`.
+- [ ] **Vercel**: add env vars, deploy, the cron in `vercel.json` is **daily** (Hobby plan limit). Day-before reminders work; the 2-hour reminders need it to run every 15 minutes (Vercel Pro, or an outside scheduler calling `/api/cron/reminders` with `Authorization: Bearer $CRON_SECRET`), then set `NEXT_PUBLIC_APP_MODE=live`.
 
 ## 3. Decisions still open
 

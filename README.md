@@ -72,7 +72,7 @@ The admin calendar auto-fills the selected day with sample bookings in mock mode
 3. `pnpm db:migrate` against it (**do not run `db:seed`** on live). Create the real shop row, hours, barbers and services (SQL or the admin).
 4. **First owner**: create the user in Neon Auth (console > Auth > Users), then insert their profile: `insert into profiles (id, shop_id, role, display_name) values ('<neon auth user id>', '<shop id>', 'owner', 'Carlo S.');`. Add other staff the same way with role `barber`.
 5. **Resend**: verified sending domain + API key. **Turnstile**: site + secret keys.
-6. Deploy on Vercel (`vercel.json` registers the reminder cron every 15 min), set `NEXT_PUBLIC_APP_MODE=live`.
+6. Deploy on Vercel (`vercel.json` registers the reminder cron **once a day**, the most a Vercel Hobby plan allows. For the 2-hour reminders, run it every 15 minutes with Vercel Pro or any scheduler that calls `/api/cron/reminders` with `Authorization: Bearer $CRON_SECRET`), set `NEXT_PUBLIC_APP_MODE=live`.
 
 ## Environment variables
 
