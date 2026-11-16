@@ -1,6 +1,6 @@
 # Carlo's Barbershop: website + admin 
 
-Next.js 15 (App Router) · TypeScript strict · Tailwind v4 · **Neon** (Postgres 18, Managed Better Auth, Realtime) · Zod · Resend + React Email · pnpm.
+Next.js 15 (App Router)  · TypeScript strict · Tailwind v4 · **Neon** (Postgres 18, Managed Better Auth, Realtime) · Zod · Resend + React Email · pnpm.
 
 This round is a **clickable mock** built on the real architecture. Everything works end to end on seeded data; going live is configuration plus the items in [`TODO-LIVE.md`](TODO-LIVE.md). The original plan is in [`PLAN.md`](PLAN.md) (see its "Neon port" note for what changed).
 
